@@ -6,6 +6,14 @@ import numpy as np
 from datetime import datetime, timedelta
 import time
 
+# Set page layout to wide mode
+st.set_page_config(
+    page_title="GMMA 股票分析工具",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # App title and description
 st.title("顾比多重移动平均线 (GMMA) 图表")
 st.markdown("""
