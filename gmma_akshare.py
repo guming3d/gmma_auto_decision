@@ -266,27 +266,59 @@ else:  # Auto scan mode
     # Industry board selection
     if scan_mode == "按行业板块":
         try:
-            # Display a loading message in sidebar (no spinner available in sidebar)
+            # Display a loading message in sidebar
             st.sidebar.text("正在加载行业板块...")
             
             # Fetch industry board list with proper spinner in main area
-            with st.spinner("获取行业板块..."):
+            with st.spinner("获取行业板块和统计股票数量..."):
+                # Get all industry names
                 industry_df = ak.stock_board_industry_name_em()
                 industry_list = industry_df["板块名称"].tolist()
+                
+                # Create a dictionary to store industry stock counts
+                industry_counts = {}
+                
+                # Get stock counts for each industry (with a progress indicator)
+                progress_text = st.empty()
+                for i, industry in enumerate(industry_list):
+                    progress_text.text(f"正在统计行业股票数量: {i+1}/{len(industry_list)} - {industry}")
+                    try:
+                        # Fetch stocks in this industry
+                        industry_stocks = ak.stock_board_industry_cons_em(symbol=industry)
+                        # Store the count
+                        count = len(industry_stocks) if not industry_stocks.empty else 0
+                        industry_counts[industry] = count
+                    except:
+                        # If failed, set count to unknown
+                        industry_counts[industry] = 0
+                
+                # Format options to include stock count: "行业名 (123股)"
+                industry_options = [f"{ind} ({industry_counts[ind]}股)" for ind in industry_list]
+                # Create a mapping from formatted name back to original name
+                industry_name_mapping = {f"{ind} ({industry_counts[ind]}股)": ind for ind in industry_list}
+                
+                # Clear the progress message
+                progress_text.empty()
             
-            # Remove loading message by replacing it with empty space
+            # Remove loading message from sidebar
             st.sidebar.text("")
             
-            # Replace selectbox with multiselect to allow multiple industry selections
-            selected_industries = st.sidebar.multiselect(
+            # Use the formatted options in the multiselect
+            default_option = industry_options[0] if industry_options else None
+            selected_industry_options = st.sidebar.multiselect(
                 "选择行业板块 (可多选)",
-                options=industry_list,
-                default=[industry_list[0]] if industry_list else []
+                options=industry_options,
+                default=[default_option] if default_option else []
             )
+            
+            # Convert the selected formatted options back to original industry names
+            selected_industries = [industry_name_mapping[opt] for opt in selected_industry_options]
             
             # Show the selected industry info
             if selected_industries:
-                st.sidebar.info(f"已选择: {', '.join(selected_industries)}")
+                total_stocks = sum(industry_counts[ind] for ind in selected_industries)
+                industries_text = ", ".join(selected_industries)
+                st.sidebar.info(f"已选择: {industries_text}\n\n共计约 {total_stocks} 只股票")
         except Exception as e:
             st.sidebar.error(f"获取行业板块失败: {str(e)}")
 
@@ -521,7 +553,8 @@ else:  # Auto scan mode
         if scan_mode == "按行业板块":
             if selected_industries:
                 industry_count = len(selected_industries)
-                industries_text = f"{industry_count} 个行业" if industry_count > 1 else selected_industries[0]
+                total_stocks = sum(industry_counts.get(ind, 0) for ind in selected_industries)
+                industries_text = f"{industry_count} 个行业 (约 {total_stocks} 只股票)" if industry_count > 1 else f"{selected_industries[0]} (约 {industry_counts.get(selected_industries[0], 0)} 只股票)"
                 st.info(f"请点击'开始扫描'按钮以查找 {industries_text} 中最近出现买入信号的股票。")
             else:
                 st.info("请先选择至少一个行业板块，然后点击'开始扫描'按钮。")
