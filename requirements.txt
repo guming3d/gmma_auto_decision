@@ -1,0 +1,11 @@
+# Dependencies for GMMA Stock Analysis App
+
+# Core libraries
+streamlit>=1.22.0
+akshare>=1.8.99
+pandas>=1.5.3
+plotly>=5.13.0
+numpy>=1.23.5
+
+# Optional - for better performance
+pyarrow>=11.0.0
