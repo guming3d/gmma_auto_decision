@@ -46,10 +46,11 @@ def has_recent_crossover(ticker, days_to_check=3):
         stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
         stock_data['crossover'] = False
         
-        # Find crossover points
+        # Find crossover points - FIX: Use loc[] instead of chained assignment
         for i in range(1, len(stock_data)):
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
-                stock_data['crossover'].iloc[i] = True
+                # Replace: stock_data['crossover'].iloc[i] = True
+                stock_data.loc[stock_data.index[i], 'crossover'] = True
         
         # Check if there's a crossover in the last 'days_to_check' days
         recent_data = stock_data.iloc[-days_to_check:]
@@ -62,7 +63,7 @@ def has_recent_crossover(ticker, days_to_check=3):
 
 # Sidebar options
 st.sidebar.title("分析模式")
-analysis_mode = st.sidebar.radio("选择模式", ["单一股票分析", "自动扫描买入信号"])
+analysis_mode = st.sidebar.radio("选择模式", ["自动扫描买入信号","单一股票分析"])
 
 if analysis_mode == "单一股票分析":
     # Single stock analysis mode - similar to the original code
@@ -116,7 +117,8 @@ if analysis_mode == "单一股票分析":
                     # Find the exact crossover points (when short_above_long changes from False to True)
                     for i in range(1, len(stock_data)):
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
-                            stock_data['crossover'].iloc[i] = True
+                            # Replace: stock_data['crossover'].iloc[i] = True
+                            stock_data.loc[stock_data.index[i], 'crossover'] = True
                     
                     # Create Plotly figure
                     fig = go.Figure()
