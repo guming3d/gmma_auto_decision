@@ -2,6 +2,7 @@ import streamlit as st
 import akshare as ak
 import pandas as pd
 import plotly.graph_objects as go
+import numpy as np
 from datetime import datetime, timedelta
 
 # App title and description
@@ -47,10 +48,27 @@ with st.spinner("Fetching data..."):
                 for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
                     stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
                 
+                # Define short-term and long-term EMAs
+                short_terms = [3, 5, 8, 10, 12, 15]
+                long_terms = [30, 35, 40, 45, 50, 60]
+                
+                # Calculate average of short-term and long-term EMAs for each day
+                stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
+                stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
+                
+                # Detect crossovers (short-term crossing above long-term)
+                stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
+                stock_data['crossover'] = False
+                
+                # Find the exact crossover points (when short_above_long changes from False to True)
+                for i in range(1, len(stock_data)):
+                    if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
+                        stock_data['crossover'].iloc[i] = True
+                
                 # Create Plotly figure
                 fig = go.Figure()
                 
-                # Replace line plot with rectangles (candlestick-like bars) for open-close prices
+                # Add candlestick chart
                 fig.add_trace(go.Candlestick(
                     x=stock_data.index,
                     open=stock_data["open"],
@@ -69,10 +87,10 @@ with st.spinner("Fetching data..."):
                             x=stock_data.index,
                             y=stock_data[f"EMA{period}"],
                             mode="lines",
-                            name="Short-term EMAs",
-                            line=dict(color="blue"),
+                            name=f"EMA{period}",
+                            line=dict(color="blue", width=1),
                             legendgroup="short_term",
-                            showlegend=(i == 0)  # Show legend only for the first trace
+                            showlegend=(i == 0)
                         ))
                 
                 # Add long-term EMAs (red)
@@ -82,15 +100,77 @@ with st.spinner("Fetching data..."):
                             x=stock_data.index,
                             y=stock_data[f"EMA{period}"],
                             mode="lines",
-                            name="Long-term EMAs",
-                            line=dict(color="red"),
+                            name=f"EMA{period}",
+                            line=dict(color="red", width=1),
                             legendgroup="long_term",
-                            showlegend=(i == 0)  # Show legend only for the first trace
+                            showlegend=(i == 0)
                         ))
+                
+                # Add average short-term and long-term EMAs to visualize crossover
+                fig.add_trace(go.Scatter(
+                    x=stock_data.index,
+                    y=stock_data['avg_short_ema'],
+                    mode="lines",
+                    name="Avg Short-term EMAs",
+                    line=dict(color="blue", width=2, dash='dot'),
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=stock_data.index,
+                    y=stock_data['avg_long_ema'],
+                    mode="lines",
+                    name="Avg Long-term EMAs",
+                    line=dict(color="red", width=2, dash='dot'),
+                ))
+                
+                # Mark crossover signals on the chart
+                crossover_dates = stock_data[stock_data['crossover']].index
+                for date in crossover_dates:
+                    price_at_crossover = stock_data.loc[date, 'close']
+                    # Add vertical line at crossover
+                    fig.add_shape(
+                        type="line",
+                        x0=date,
+                        y0=price_at_crossover * 0.97,
+                        x1=date,
+                        y1=price_at_crossover * 1.03,
+                        line=dict(color="green", width=3),
+                    )
+                    # Add annotation
+                    fig.add_annotation(
+                        x=date,
+                        y=price_at_crossover * 1.04,
+                        text="买入信号",
+                        showarrow=True,
+                        arrowhead=1,
+                        arrowcolor="green",
+                        arrowsize=1,
+                        arrowwidth=2,
+                        font=dict(color="green", size=12)
+                    )
+                
+                # Count and display the number of signals
+                signal_count = len(crossover_dates)
+                if signal_count > 0:
+                    last_signal = crossover_dates[-1].strftime('%Y-%m-%d') if signal_count > 0 else "None"
+                    signal_info = f"**买入信号**: 共 {signal_count} 个, 最近信号日期: {last_signal}"
+                    fig.add_annotation(
+                        x=0.02,
+                        y=0.98,
+                        xref="paper",
+                        yref="paper",
+                        text=signal_info,
+                        showarrow=False,
+                        font=dict(size=14, color="green"),
+                        bgcolor="white",
+                        bordercolor="green",
+                        borderwidth=1,
+                        align="left"
+                    )
                 
                 # Customize plot layout
                 fig.update_layout(
-                    title=f"股票 {ticker} GMMA 图表",
+                    title=f"股票 {ticker} GMMA 图表 (标记: 短期EMA从下方穿过长期EMA)",
                     xaxis_title="日期",
                     yaxis_title="价格",
                     legend_title="图例",
@@ -100,5 +180,12 @@ with st.spinner("Fetching data..."):
                 
                 # Display the plot in Streamlit
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Display crossover days in a table
+                if len(crossover_dates) > 0:
+                    st.subheader("买入信号日期")
+                    signal_df = pd.DataFrame(crossover_dates, columns=["日期"])
+                    signal_df["日期"] = signal_df["日期"].dt.strftime('%Y-%m-%d')
+                    st.table(signal_df)
     except Exception as e:
         st.error(f"获取数据时出错: {str(e)}")
