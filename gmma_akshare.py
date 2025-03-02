@@ -339,6 +339,22 @@ else:  # Auto scan mode
                     # Counter for stocks with crossover
                     crossover_stocks = []
                     
+                    # Create industry mapping dictionary for multiple industry case
+                    industry_mapping = {}
+                    
+                    # If in industry mode, map stock codes to their industries
+                    if scan_mode == "按行业板块":
+                        for industry in selected_industries:
+                            try:
+                                industry_stocks = ak.stock_board_industry_cons_em(symbol=industry)
+                                for _, row in industry_stocks.iterrows():
+                                    stock_code = row["代码"].split('.')[0].zfill(6)
+                                    # Use a dictionary with stock code as key and industry as value
+                                    # If a stock belongs to multiple industries, use the last one (will be overwritten)
+                                    industry_mapping[stock_code] = industry
+                            except:
+                                continue
+                    
                     # Loop through selected stocks
                     for i, row in enumerate(stock_info_df.itertuples()):
                         # Update progress
@@ -355,11 +371,26 @@ else:  # Auto scan mode
                         has_crossover, stock_data = has_recent_crossover(ticker, days_to_check)
                         
                         if has_crossover:
-                            crossover_stocks.append((ticker, name, stock_data))
-                            # results_title.subheader(f"扫描结果 ({len(crossover_stocks)}/{max_stocks})")
+                            # Get industry information for the stock
+                            if scan_mode == "按行业板块":
+                                # Use the mapped industry from our dictionary
+                                industry = industry_mapping.get(ticker, "未知")
+                            else:
+                                # For all A-shares mode, try to get industry info directly
+                                try:
+                                    # First try with stock_individual_info_em
+                                    stock_info = ak.stock_individual_info_em(symbol=ticker)
+                                    # Extract industry info from the dataframe
+                                    industry = stock_info.loc[stock_info['item'] == '所属行业', 'value'].iloc[0]
+                                except:
+                                    # If failed, use a placeholder
+                                    industry = "未知"
+                            
+                            # Include industry in the crossover_stocks list
+                            crossover_stocks.append((ticker, name, industry, stock_data))
                             
                             # Create tab for this stock
-                            with st.expander(f"{ticker} - {name}", expanded=True):
+                            with st.expander(f"{ticker} - {name} ({industry})", expanded=True):
                                 # Create GMMA chart
                                 fig = go.Figure()
                                 
@@ -468,8 +499,11 @@ else:  # Auto scan mode
                         scan_scope = f"所选 {len(selected_industries)} 个行业" if scan_mode == "按行业板块" else "全部 A 股"
                         st.success(f"在{scan_scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入信号的股票。")
                         
-                        # Create a summary table
-                        summary_df = pd.DataFrame([(t, n) for t, n, _ in crossover_stocks], columns=["代码", "名称"])
+                        # Create a summary table with industry information
+                        summary_df = pd.DataFrame(
+                            [(t, n, ind) for t, n, ind, _ in crossover_stocks], 
+                            columns=["代码", "名称", "所属行业"]
+                        )
                         st.subheader("买入信号股票列表")
                         st.table(summary_df)
                 
