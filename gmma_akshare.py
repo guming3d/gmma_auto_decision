@@ -248,7 +248,7 @@ if analysis_mode == "单一股票分析":
 else:  # Auto scan mode
     st.sidebar.title("扫描设置")
     days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 3)
-    max_stocks = st.sidebar.slider("最多显示股票数量", 1, 20, 10)
+    max_stocks = st.sidebar.slider("最多显示股票数量", 1, 200, 10)
     
     # Add industry selection option
     scan_mode = st.sidebar.radio("扫描范围", ["按行业板块","全部 A 股"])
