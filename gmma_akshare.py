@@ -345,8 +345,8 @@ else:  # Auto scan mode
                                 high=stock_data[["open", "close"]].max(axis=1),
                                 low=stock_data[["open", "close"]].min(axis=1),
                                 close=stock_data["close"],
-                                increasing_line_color='green',
-                                decreasing_line_color='red',
+                                increasing_line_color='red',
+                                decreasing_line_color='green',
                                 name="Price"
                             ))
                             
@@ -395,14 +395,14 @@ else:  # Auto scan mode
                             crossover_dates = stock_data[stock_data['crossover']].index
                             for date in crossover_dates:
                                 price_at_crossover = stock_data.loc[date, 'close']
-                                fig.add_shape(
-                                    type="line",
-                                    x0=date,
-                                    y0=price_at_crossover * 0.97,
-                                    x1=date,
-                                    y1=price_at_crossover * 1.03,
-                                    line=dict(color="green", width=3),
-                                )
+                                # fig.add_shape(
+                                #     type="line",
+                                #     x0=date,
+                                #     y0=price_at_crossover * 0.97,
+                                #     x1=date,
+                                #     y1=price_at_crossover * 1.03,
+                                #     line=dict(color="orange", width=3),
+                                # )
                                 fig.add_annotation(
                                     x=date,
                                     y=price_at_crossover * 1.04,
