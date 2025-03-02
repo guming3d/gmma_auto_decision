@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime, timedelta
 import time
+from functools import lru_cache
 
 # Set page layout to wide mode
 st.set_page_config(
@@ -68,6 +69,65 @@ def has_recent_crossover(ticker, days_to_check=3):
     except Exception as e:
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
+
+# Add a caching mechanism for expensive API calls
+@st.cache_data(ttl=3600)  # Cache data for 1 hour
+def fetch_industry_data():
+    """Fetch all industries and their stocks, returning a structured dictionary"""
+    try:
+        # Get all industry names
+        industry_df = ak.stock_board_industry_name_em()
+        industry_list = industry_df["板块名称"].tolist()
+        
+        # Create dictionaries to store industry data
+        industry_stocks = {}  # Industry -> List of stocks
+        industry_counts = {}  # Industry -> Count of stocks
+        stock_to_industry = {}  # Stock code -> Industry
+        
+        # Get stock data for each industry
+        progress_text = st.empty()
+        for i, industry in enumerate(industry_list):
+            progress_text.text(f"正在获取行业数据: {i+1}/{len(industry_list)} - {industry}")
+            try:
+                # Fetch stocks in this industry
+                industry_stocks_df = ak.stock_board_industry_cons_em(symbol=industry)
+                if not industry_stocks_df.empty:
+                    # Process stocks in this industry
+                    stocks_list = []
+                    for _, row in industry_stocks_df.iterrows():
+                        stock_code = row["代码"].split('.')[0].zfill(6)
+                        stock_name = row["名称"]
+                        stocks_list.append((stock_code, stock_name))
+                        # Map stock code to industry
+                        stock_to_industry[stock_code] = industry
+                    
+                    # Store data
+                    industry_stocks[industry] = stocks_list
+                    industry_counts[industry] = len(stocks_list)
+                else:
+                    industry_stocks[industry] = []
+                    industry_counts[industry] = 0
+            except Exception as e:
+                print(f"Error fetching stocks for {industry}: {str(e)}")
+                industry_stocks[industry] = []
+                industry_counts[industry] = 0
+        
+        progress_text.empty()
+        
+        return {
+            "industry_list": industry_list,
+            "industry_stocks": industry_stocks,
+            "industry_counts": industry_counts,
+            "stock_to_industry": stock_to_industry
+        }
+    except Exception as e:
+        st.error(f"获取行业数据失败: {str(e)}")
+        return {
+            "industry_list": [],
+            "industry_stocks": {},
+            "industry_counts": {},
+            "stock_to_industry": {}
+        }
 
 # Sidebar options
 st.sidebar.title("分析模式")
@@ -269,39 +329,20 @@ else:  # Auto scan mode
             # Display a loading message in sidebar
             st.sidebar.text("正在加载行业板块...")
             
-            # Fetch industry board list with proper spinner in main area
-            with st.spinner("获取行业板块和统计股票数量..."):
-                # Get all industry names
-                industry_df = ak.stock_board_industry_name_em()
-                industry_list = industry_df["板块名称"].tolist()
-                
-                # Create a dictionary to store industry stock counts
-                industry_counts = {}
-                
-                # Get stock counts for each industry (with a progress indicator)
-                progress_text = st.empty()
-                for i, industry in enumerate(industry_list):
-                    progress_text.text(f"正在统计行业股票数量: {i+1}/{len(industry_list)} - {industry}")
-                    try:
-                        # Fetch stocks in this industry
-                        industry_stocks = ak.stock_board_industry_cons_em(symbol=industry)
-                        # Store the count
-                        count = len(industry_stocks) if not industry_stocks.empty else 0
-                        industry_counts[industry] = count
-                    except:
-                        # If failed, set count to unknown
-                        industry_counts[industry] = 0
-                
-                # Format options to include stock count: "行业名 (123股)"
-                industry_options = [f"{ind} ({industry_counts[ind]}股)" for ind in industry_list]
-                # Create a mapping from formatted name back to original name
-                industry_name_mapping = {f"{ind} ({industry_counts[ind]}股)": ind for ind in industry_list}
-                
-                # Clear the progress message
-                progress_text.empty()
+            # Fetch all industry data once (cached)
+            with st.spinner("获取行业板块数据..."):
+                industry_data = fetch_industry_data()
+                industry_list = industry_data["industry_list"]
+                industry_counts = industry_data["industry_counts"]
+                industry_stocks = industry_data["industry_stocks"]
             
             # Remove loading message from sidebar
             st.sidebar.text("")
+            
+            # Format options to include stock count: "行业名 (123股)"
+            industry_options = [f"{ind} ({industry_counts[ind]}股)" for ind in industry_list]
+            # Create a mapping from formatted name back to original name
+            industry_name_mapping = {f"{ind} ({industry_counts[ind]}股)": ind for ind in industry_list}
             
             # Use the formatted options in the multiselect
             default_option = industry_options[0] if industry_options else None
@@ -331,34 +372,21 @@ else:  # Auto scan mode
                 # Get stock list based on scan mode
                 if scan_mode == "按行业板块" and selected_industries:
                     # Create an empty DataFrame to store all industry stocks
-                    all_industry_stocks = pd.DataFrame()
+                    all_industry_stocks_list = []
                     
-                    # Get stocks from each selected industry
+                    # Use cached data instead of making new API calls
                     for industry in selected_industries:
-                        with st.spinner(f"获取 {industry} 行业的股票列表..."):
-                            try:
-                                industry_stocks_df = ak.stock_board_industry_cons_em(symbol=industry)
-                                if not industry_stocks_df.empty:
-                                    # Process industry stocks
-                                    industry_stocks = industry_stocks_df[["代码", "名称"]].rename(
-                                        columns={"代码": "code", "名称": "name"}
-                                    )
-                                    # Add to combined DataFrame
-                                    all_industry_stocks = pd.concat([all_industry_stocks, industry_stocks])
-                            except Exception as e:
-                                st.warning(f"获取 {industry} 行业股票列表失败: {str(e)}")
-                                continue
+                        if industry in industry_stocks:
+                            all_industry_stocks_list.extend(industry_stocks[industry])
                     
-                    # Remove duplicates (stocks that belong to multiple industries)
-                    if not all_industry_stocks.empty:
-                        stock_info_df = all_industry_stocks.drop_duplicates(subset=["code"])
-                        # Remove any exchange suffix and ensure 6 digits
-                        stock_info_df["code"] = stock_info_df["code"].apply(
-                            lambda x: x.split('.')[0].zfill(6) if isinstance(x, str) else str(x).zfill(6)
-                        )
+                    if all_industry_stocks_list:
+                        # Convert to DataFrame
+                        stock_info_df = pd.DataFrame(all_industry_stocks_list, columns=["code", "name"])
+                        # Remove duplicates
+                        stock_info_df = stock_info_df.drop_duplicates(subset=["code"])
                     else:
                         st.error("未能获取所选行业的股票列表。")
-                        have_stocks_to_scan = False  # Set flag instead of using return
+                        have_stocks_to_scan = False
                 else:
                     # Get all A-share stock codes and names
                     stock_info_df = ak.stock_info_a_code_name()
@@ -384,16 +412,8 @@ else:  # Auto scan mode
                     
                     # If in industry mode, map stock codes to their industries
                     if scan_mode == "按行业板块":
-                        for industry in selected_industries:
-                            try:
-                                industry_stocks = ak.stock_board_industry_cons_em(symbol=industry)
-                                for _, row in industry_stocks.iterrows():
-                                    stock_code = row["代码"].split('.')[0].zfill(6)
-                                    # Use a dictionary with stock code as key and industry as value
-                                    # If a stock belongs to multiple industries, use the last one (will be overwritten)
-                                    industry_mapping[stock_code] = industry
-                            except:
-                                continue
+                        # Create industry mapping from the cached data
+                        industry_mapping = industry_data["stock_to_industry"]
                     
                     # Loop through selected stocks
                     for i, row in enumerate(stock_info_df.itertuples()):
@@ -413,17 +433,19 @@ else:  # Auto scan mode
                         if has_crossover:
                             # Get industry information for the stock
                             if scan_mode == "按行业板块":
-                                # Use the mapped industry from our dictionary
+                                # Use the mapped industry from the cached data
                                 industry = industry_mapping.get(ticker, "未知")
                             else:
-                                # For all A-shares mode, try to get industry info directly
+                                # For all A-shares mode, try to get industry info
                                 try:
-                                    # First try with stock_individual_info_em
-                                    stock_info = ak.stock_individual_info_em(symbol=ticker)
-                                    # Extract industry info from the dataframe
-                                    industry = stock_info.loc[stock_info['item'] == '所属行业', 'value'].iloc[0]
+                                    # First check if we have it in the cache
+                                    if ticker in industry_data["stock_to_industry"]:
+                                        industry = industry_data["stock_to_industry"][ticker]
+                                    else:
+                                        # If not cached, fetch it directly
+                                        stock_info = ak.stock_individual_info_em(symbol=ticker)
+                                        industry = stock_info.loc[stock_info['item'] == '所属行业', 'value'].iloc[0]
                                 except:
-                                    # If failed, use a placeholder
                                     industry = "未知"
                             
                             # Include industry in the crossover_stocks list
