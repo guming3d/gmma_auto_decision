@@ -6,6 +6,8 @@ import numpy as np
 from datetime import datetime, timedelta
 import time
 from functools import lru_cache
+import os
+import json
 
 # Set page layout to wide mode
 st.set_page_config(
@@ -70,11 +72,49 @@ def has_recent_crossover(ticker, days_to_check=3):
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
 
-# Add a caching mechanism for expensive API calls
-@st.cache_data(ttl=3600)  # Cache data for 1 hour
+# Add a caching mechanism for expensive API calls with local file support
+@st.cache_data(ttl=3600)  # Cache data for 1 hour in Streamlit's cache
 def fetch_industry_data():
-    """Fetch all industries and their stocks, returning a structured dictionary"""
+    """Fetch and cache all industry data, using local file when possible"""
     try:
+        # Define directory for cache files
+        cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Find the most recent industry cache file
+        cache_files = [f for f in os.listdir(cache_dir) if f.startswith('industry_data_') and f.endswith('.json')]
+        latest_file = None
+        is_cache_valid = False
+        
+        if cache_files:
+            # Get the most recent file
+            cache_files.sort(reverse=True)  # Sort by filename (which includes date)
+            latest_file = os.path.join(cache_dir, cache_files[0])
+            
+            # Extract date from filename (industry_data_YYYY-MM-DD.json)
+            try:
+                file_date_str = cache_files[0].replace('industry_data_', '').replace('.json', '')
+                file_date = datetime.strptime(file_date_str, '%Y-%m-%d')
+                # Check if file is less than 2 months old
+                is_cache_valid = (datetime.now() - file_date).days < 60
+            except:
+                is_cache_valid = False
+        
+        # Load from cache file if valid
+        if is_cache_valid and latest_file and os.path.exists(latest_file):
+            progress_text = st.empty()
+            progress_text.text("从本地缓存加载行业数据...")
+            
+            with open(latest_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            progress_text.empty()
+            return cached_data
+        
+        # If cache is invalid or doesn't exist, fetch fresh data
+        progress_text = st.empty()
+        progress_text.text("正在从服务器获取行业数据...")
+        
         # Get all industry names
         industry_df = ak.stock_board_industry_name_em()
         industry_list = industry_df["板块名称"].tolist()
@@ -85,7 +125,6 @@ def fetch_industry_data():
         stock_to_industry = {}  # Stock code -> Industry
         
         # Get stock data for each industry
-        progress_text = st.empty()
         for i, industry in enumerate(industry_list):
             progress_text.text(f"正在获取行业数据: {i+1}/{len(industry_list)} - {industry}")
             try:
@@ -112,21 +151,43 @@ def fetch_industry_data():
                 industry_stocks[industry] = []
                 industry_counts[industry] = 0
         
-        progress_text.empty()
-        
-        return {
+        # Prepare data structure for caching
+        industry_data = {
             "industry_list": industry_list,
             "industry_stocks": industry_stocks,
             "industry_counts": industry_counts,
-            "stock_to_industry": stock_to_industry
+            "stock_to_industry": stock_to_industry,
+            "fetch_date": datetime.now().strftime('%Y-%m-%d')
         }
+        
+        # Save to a new cache file with current date
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        cache_file = os.path.join(cache_dir, f'industry_data_{current_date}.json')
+        
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(industry_data, f, ensure_ascii=False, indent=2)
+        
+        # Clean up old cache files (keep only the most recent 3)
+        cache_files = [f for f in os.listdir(cache_dir) if f.startswith('industry_data_') and f.endswith('.json')]
+        if len(cache_files) > 3:
+            cache_files.sort()  # Sort by date ascending
+            for old_file in cache_files[:-3]:  # Remove all but the 3 most recent
+                try:
+                    os.remove(os.path.join(cache_dir, old_file))
+                except:
+                    pass
+        
+        progress_text.empty()
+        return industry_data
+    
     except Exception as e:
         st.error(f"获取行业数据失败: {str(e)}")
         return {
             "industry_list": [],
             "industry_stocks": {},
             "industry_counts": {},
-            "stock_to_industry": {}
+            "stock_to_industry": {},
+            "fetch_date": datetime.now().strftime('%Y-%m-%d')
         }
 
 # Sidebar options
