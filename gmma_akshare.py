@@ -387,9 +387,6 @@ else:  # Auto scan mode
     # Industry board selection
     if scan_mode == "按行业板块":
         try:
-            # Display a loading message in sidebar
-            st.sidebar.text("正在加载行业板块...")
-            
             # Fetch all industry data once (cached)
             with st.spinner("获取行业板块数据..."):
                 industry_data = fetch_industry_data()
