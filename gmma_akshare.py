@@ -393,20 +393,59 @@ else:  # Auto scan mode
                 industry_list = industry_data["industry_list"]
                 industry_counts = industry_data["industry_counts"]
                 industry_stocks = industry_data["industry_stocks"]
+                
+                # Get fresh industry price change data directly from API
+                fresh_industry_df = ak.stock_board_industry_name_em()
+                industry_change_pct = {row["板块名称"]: row["涨跌幅"] 
+                                       for _, row in fresh_industry_df.iterrows()}
             
             # Remove loading message from sidebar
             st.sidebar.text("")
             
-            # Format options to include stock count: "行业名 (123股)"
-            industry_options = [f"{ind} ({industry_counts[ind]}股)" for ind in industry_list]
-            # Create a mapping from formatted name back to original name
-            industry_name_mapping = {f"{ind} ({industry_counts[ind]}股)": ind for ind in industry_list}
+            # Format options to include stock count and 涨跌幅: "行业名 (123股) ↑2.50%"
+            industry_options = []
+            for ind in industry_list:
+                count = industry_counts[ind]
+                # Get the latest change percentage for this industry
+                change_pct = industry_change_pct.get(ind, 0)
+                
+                # Format percentage with arrow indicator and color
+                if change_pct > 0:
+                    pct_str = f"↑{change_pct:.2f}%"
+                elif change_pct < 0:
+                    pct_str = f"↓{abs(change_pct):.2f}%"
+                else:
+                    pct_str = f"0.00%"
+                    
+                # Create the formatted option
+                option = f"{ind} ({count}股) {pct_str}"
+                industry_options.append(option)
             
-            # Use the formatted options in the multiselect
-            default_option = industry_options[0] if industry_options else None
+            # Create a mapping from formatted name back to original name
+            industry_name_mapping = {option: ind for ind, option in zip(industry_list, industry_options)}
+            
+            # Get fresh industry order directly from the API for sorting
+            try:
+                ordered_industry_list = fresh_industry_df["板块名称"].tolist()
+                
+                # Create a mapping for sorting based on the original order
+                industry_order = {ind: idx for idx, ind in enumerate(ordered_industry_list)}
+                
+                # Sort industry_options based on the original order
+                industry_options_sorted = sorted(
+                    industry_options,
+                    key=lambda x: industry_order.get(industry_name_mapping[x], float('inf'))
+                )
+            except Exception as e:
+                # Fallback to unsorted if API call fails
+                st.sidebar.warning(f"无法获取行业排序，将使用默认顺序: {str(e)}")
+                industry_options_sorted = industry_options
+            
+            # Use the sorted options in the multiselect
+            default_option = industry_options_sorted[0] if industry_options_sorted else None
             selected_industry_options = st.sidebar.multiselect(
                 "选择行业板块 (可多选)",
-                options=industry_options,
+                options=industry_options_sorted,
                 default=[default_option] if default_option else []
             )
             
