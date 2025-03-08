@@ -73,7 +73,7 @@ def has_recent_crossover(ticker, days_to_check=3):
         return False, None
 
 # Add a caching mechanism for expensive API calls with local file support
-@st.cache_data(ttl=1800)  # Cache data for 0.5 hour in Streamlit's cache
+@st.cache_data(ttl=60)  # Cache data for 1 hour in Streamlit's cache
 def fetch_industry_data():
     """Fetch and cache all industry data, using local file when possible"""
     try:
@@ -376,8 +376,8 @@ if analysis_mode == "单一股票分析":
 
 else:  # Auto scan mode
     st.sidebar.title("扫描设置")
-    days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 3)
-    max_stocks = st.sidebar.slider("最多显示股票数量", 1, 200, 10)
+    days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 1)
+    max_stocks = st.sidebar.slider("最多显示股票数量", 1, 200, 200)
     
     # Add industry selection option
     scan_mode = st.sidebar.radio("扫描范围", ["按行业板块","全部 A 股"])
