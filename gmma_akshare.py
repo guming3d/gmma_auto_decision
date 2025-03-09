@@ -73,7 +73,7 @@ def has_recent_crossover(ticker, days_to_check=3):
         return False, None
 
 # Add a caching mechanism for expensive API calls with local file support
-@st.cache_data(ttl=60)  # Cache data for 1 hour in Streamlit's cache
+@st.cache_data(ttl=60)  # Cache data for 1 minute in Streamlit's cache
 def fetch_industry_data():
     """Fetch and cache all industry data, using local file when possible"""
     try:
