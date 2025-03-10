@@ -80,7 +80,7 @@ analysis_mode = st.sidebar.radio("选择模式", ["基金全扫描","单一基�
 if analysis_mode == "基金全扫描":
     st.sidebar.title("基金扫描设置")
     hk_days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 4)
-    hk_max_stocks = st.sidebar.slider("最多显示基金数量", 1, 200, 200)
+    hk_max_stocks = st.sidebar.slider("最多显示基金数量", 1, 500, 500)
     
     if st.sidebar.button("开始扫描基金"):
         with st.spinner("正在扫描基金买入信号，这可能需要一些时间..."):
