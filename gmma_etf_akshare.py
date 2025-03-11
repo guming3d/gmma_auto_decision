@@ -85,7 +85,8 @@ if analysis_mode == "基金全扫描":
     if st.sidebar.button("开始扫描基金"):
         with st.spinner("正在扫描基金买入信号，这可能需要一些时间..."):
             try:
-                etf_stocks_df = ak.fund_name_em()
+                # etf_stocks_df = ak.fund_name_em()
+                etf_stocks_df = ak.fund_info_index_em(symbol="沪深指数", indicator="增强指数型")
                 # hk_stocks_df = ak.stock_hk_spot()
                 # print the length of the dataframe
                 print(len(etf_stocks_df))
@@ -104,7 +105,7 @@ if analysis_mode == "基金全扫描":
                     progress_bar.progress(min((i+1)/len(etf_stocks_df), 1.0))
                     
                     ticker = row['基金代码']
-                    name = row['基金简称']
+                    name = row['基金名称']
                     
                     # Check for crossover using our modified function with HK market parameter
                     has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="A")
@@ -217,7 +218,7 @@ if analysis_mode == "基金全扫描":
                     # Create a summary table
                     summary_df = pd.DataFrame(
                         [(t, n) for t, n, _ in crossover_stocks], 
-                        columns=["基金代码", "基金简称"]
+                        columns=["基金代码", "基金名称"]
                     )
                     st.subheader("基金买入信号列表")
                     st.table(summary_df)
@@ -246,7 +247,7 @@ elif analysis_mode == "单一基金分析":
     
     # Calculate date range for the past 6 months
     end_date = datetime.today().strftime('%Y%m%d')
-    start_date = (datetime.today() - timedelta(days=180)).strftime('%Y%m%d')
+    start_date = (datetime.today() - timedelta(days=365)).strftime('%Y%m%d')
     
     # Fetch and process stock data
     with st.spinner("获取数据中..."):
