@@ -54,18 +54,23 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
         stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
         stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
         
-        # Detect crossovers
+        # Detect crossovers (short-term crossing above/below long-term)
         stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
-        stock_data['crossover'] = False
+        stock_data['buy_signal'] = False
+        stock_data['sell_signal'] = False
         
-        # Find crossover points - FIX: Use loc[] instead of chained assignment
+        # Find both buy and sell signals
         for i in range(1, len(stock_data)):
+            # Buy signal: short-term crosses above long-term
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
-                stock_data.loc[stock_data.index[i], 'crossover'] = True
+                stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+            # Sell signal: short-term crosses below long-term
+            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i]:
+                stock_data.loc[stock_data.index[i], 'sell_signal'] = True
         
         # Check if there's a crossover in the last 'days_to_check' days
         recent_data = stock_data.iloc[-days_to_check:]
-        has_crossover = recent_data['crossover'].any()
+        has_crossover = recent_data['buy_signal'].any() or recent_data['sell_signal'].any()
         
         return has_crossover, stock_data if has_crossover else None
     except Exception as e:
@@ -75,7 +80,7 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
 
 # Sidebar options
 st.sidebar.title("分析模式")
-analysis_mode = st.sidebar.radio("选择模式", ["基金全扫描","单一基金分析" ])
+analysis_mode = st.sidebar.radio("选择模式", ["指定基金分析", "基金全扫描"], index=0)
 
 if analysis_mode == "基金全扫描":
     st.sidebar.title("基金扫描设置")
@@ -172,21 +177,70 @@ if analysis_mode == "基金全扫描":
                                 line=dict(color="red", width=2, dash='dot'),
                             ))
                             
-                            # Mark crossover signals
-                            crossover_dates = stock_data[stock_data['crossover']].index
-                            for date in crossover_dates:
-                                price_at_crossover = stock_data.loc[date, 'close']
+                            # Mark buy and sell signals on the chart
+                            buy_dates = stock_data[stock_data['buy_signal']].index
+                            sell_dates = stock_data[stock_data['sell_signal']].index
+                            
+                            # Add buy signals
+                            for date in buy_dates:
+                                price_at_signal = stock_data.loc[date, 'close']
+                                # Add buy annotation - arrow pointing upward from below
                                 fig.add_annotation(
                                     x=date,
-                                    y=price_at_crossover * 1.04,
-                                    text="买入信号",
+                                    y=price_at_signal * 1.08,  # Move text higher
+                                    text=f"买入信号 {date.strftime('%Y-%m-%d')}",
                                     showarrow=True,
                                     arrowhead=1,
                                     arrowcolor="green",
                                     arrowsize=1,
                                     arrowwidth=2,
-                                    font=dict(color="green", size=12)
+                                    font=dict(color="green", size=12),
+                                    ax=0,  # No horizontal shift
+                                    ay=-40  # Move arrow start point down
                                 )
+                            
+                            # Add sell signals
+                            for date in sell_dates:
+                                price_at_signal = stock_data.loc[date, 'close']
+                                # Add sell annotation - arrow pointing downward from above
+                                fig.add_annotation(
+                                    x=date,
+                                    y=price_at_signal * 0.92,  # Move text lower
+                                    text=f"卖出信号 {date.strftime('%Y-%m-%d')}",
+                                    showarrow=True,
+                                    arrowhead=1,
+                                    arrowcolor="red",
+                                    arrowsize=1,
+                                    arrowwidth=2,
+                                    font=dict(color="red", size=12),
+                                    ax=0,  # No horizontal shift
+                                    ay=40  # Move arrow start point up
+                                )
+                            
+                            # Count and display the number of signals
+                            buy_count = len(buy_dates)
+                            sell_count = len(sell_dates)
+                            last_buy = buy_dates[-1].strftime('%Y-%m-%d') if buy_count > 0 else "None"
+                            last_sell = sell_dates[-1].strftime('%Y-%m-%d') if sell_count > 0 else "None"
+                            
+                            signal_info = (
+                                f"**买入信号**: 共 {buy_count} 个, 最近信号日期: {last_buy}<br>"
+                                f"**卖出信号**: 共 {sell_count} 个, 最近信号日期: {last_sell}"
+                            )
+                            
+                            fig.add_annotation(
+                                x=0.02,
+                                y=0.98,
+                                xref="paper",
+                                yref="paper",
+                                text=signal_info,
+                                showarrow=False,
+                                font=dict(size=14),
+                                bgcolor="white",
+                                bordercolor="black",
+                                borderwidth=1,
+                                align="left"
+                            )
                             
                             # Layout
                             fig.update_layout(
@@ -201,6 +255,28 @@ if analysis_mode == "基金全扫描":
                             
                             # Display the plot
                             st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Display both buy and sell signal dates in tables
+                            if len(buy_dates) > 0 or len(sell_dates) > 0:
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.subheader("买入信号日期")
+                                    if len(buy_dates) > 0:
+                                        buy_signal_dates = [date.strftime('%Y-%m-%d') for date in buy_dates]
+                                        buy_df = pd.DataFrame(buy_signal_dates, columns=["日期"])
+                                        st.table(buy_df)
+                                    else:
+                                        st.write("无买入信号")
+                                
+                                with col2:
+                                    st.subheader("卖出信号日期")
+                                    if len(sell_dates) > 0:
+                                        sell_signal_dates = [date.strftime('%Y-%m-%d') for date in sell_dates]
+                                        sell_df = pd.DataFrame(sell_signal_dates, columns=["日期"])
+                                        st.table(sell_df)
+                                    else:
+                                        st.write("无卖出信号")
                     
                     # Check if we have found enough stocks
                     if len(crossover_stocks) >= hk_max_stocks:
@@ -228,16 +304,18 @@ if analysis_mode == "基金全扫描":
     else:
         st.info("请点击'开始扫描基金'按钮以查找最近出现买入信号的基金。")
 
-elif analysis_mode == "单一基金分析":
+elif analysis_mode == "指定基金分析":
     # Single stock analysis mode - with market selection
     st.sidebar.title("市场选择")
     market_type = st.sidebar.radio("选择市场", ["A股"])
     
     st.sidebar.title("基金输入")
+    default_funds = "510300,510050,512100,588000,512010,512200"
     if market_type == "A股":
-        ticker = st.sidebar.text_input("输入基金代码（例如，006329）", "006329")
-        ticker_placeholder = "输入基金代码"
-        ticker_example = "如：006329 (易方达中证海外50ETF联接美元A估值图基金吧)"
+        funds_input = st.sidebar.text_area("输入基金代码（多个代码用逗号分隔）", 
+                                         value=default_funds,
+                                         height=100)
+        ticker_example = "示例：510300 (沪深300ETF), 510050 (上证50ETF)"
     
     st.sidebar.caption(ticker_example)
     
@@ -245,37 +323,39 @@ elif analysis_mode == "单一基金分析":
     show_short_term = st.sidebar.checkbox("显示短期 EMA", value=True)
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
     
+    # Process the input funds
+    fund_list = [fund.strip() for fund in funds_input.split(",") if fund.strip()]
+    
     # Calculate date range for the past 6 months
     end_date = datetime.today().strftime('%Y%m%d')
     start_date = (datetime.today() - timedelta(days=365)).strftime('%Y%m%d')
     
-    # Fetch and process stock data
-    with st.spinner("获取数据中..."):
-        try:
-            # Different validation rules based on market
-            is_valid_ticker = False
-            if market_type == "A股":
-                # For HK stocks, expect 4-5 digit codes
-                ticker = ticker.split('.')[0].zfill(6)  # Format to 5 digits with leading zeros
-                if ticker.isdigit() and (len(ticker) == 4 or len(ticker) == 5):
-                    is_valid_ticker = True
-                        
-                # Fetch stock data using akshare based on market type
-                stock_data = ak.fund_etf_hist_em(symbol=ticker, period="daily", 
-                                              start_date=start_date, end_date=end_date, adjust="")
+    # Create tabs for each fund
+    tabs = st.tabs(fund_list)
+    
+    # Analyze each fund in its own tab
+    for idx, ticker in enumerate(fund_list):
+        with tabs[idx]:
+            with st.spinner(f"获取 {ticker} 数据中..."):
+                try:
+                    # Format ticker
+                    ticker = ticker.split('.')[0].zfill(6)
                     
-                if stock_data.empty:
-                    market_name = "A股" 
-                    st.error(f"未找到所输入{market_name}代码的数据。请检查代码并重试。")
-                else:
+                    # Fetch stock data using akshare
+                    stock_data = ak.fund_etf_hist_em(symbol=ticker, period="daily", 
+                                                  start_date=start_date, end_date=end_date, adjust="")
+                    
+                    if stock_data.empty:
+                        st.error(f"未找到基金代码 {ticker} 的数据。请检查代码并重试。")
+                        continue
+                    
                     # Rename columns from Chinese to English
                     stock_data.rename(columns={'日期': 'date', '收盘': 'close', '开盘': 'open'}, inplace=True)
-                    # Set 'date' as index and sort by date
                     stock_data['date'] = pd.to_datetime(stock_data['date'])
                     stock_data.set_index('date', inplace=True)
                     stock_data.sort_index(inplace=True)
                     
-                    # Calculate Exponential Moving Averages (EMAs)
+                    # Calculate EMAs
                     for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
                         stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
                     
@@ -283,35 +363,38 @@ elif analysis_mode == "单一基金分析":
                     short_terms = [3, 5, 8, 10, 12, 15]
                     long_terms = [30, 35, 40, 45, 50, 60]
                     
-                    # Calculate average of short-term and long-term EMAs for each day
+                    # Calculate average EMAs
                     stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
                     stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
                     
-                    # Detect crossovers (short-term crossing above long-term)
+                    # Detect crossovers
                     stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
-                    stock_data['crossover'] = False
+                    stock_data['buy_signal'] = False
+                    stock_data['sell_signal'] = False
                     
-                    # Find the exact crossover points (when short_above_long changes from False to True)
+                    # Find signals
                     for i in range(1, len(stock_data)):
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
-                            stock_data.loc[stock_data.index[i], 'crossover'] = True
+                            stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i]:
+                            stock_data.loc[stock_data.index[i], 'sell_signal'] = True
                     
-                    # Create Plotly figure
+                    # Create figure
                     fig = go.Figure()
                     
-                    # Add candlestick chart
+                    # Add candlestick
                     fig.add_trace(go.Candlestick(
                         x=stock_data.index,
                         open=stock_data["open"],
                         high=stock_data[["open", "close"]].max(axis=1),
                         low=stock_data[["open", "close"]].min(axis=1),
                         close=stock_data["close"],
-                        increasing_line_color='red',  # Red for increasing in Asian markets
-                        decreasing_line_color='green',  # Green for decreasing in Asian markets
+                        increasing_line_color='red',
+                        decreasing_line_color='green',
                         name="Price"
                     ))
                     
-                    # Add short-term EMAs (blue)
+                    # Add EMAs
                     if show_short_term:
                         for i, period in enumerate([3, 5, 8, 10, 12, 15]):
                             fig.add_trace(go.Scatter(
@@ -324,7 +407,6 @@ elif analysis_mode == "单一基金分析":
                                 showlegend=(i == 0)
                             ))
                     
-                    # Add long-term EMAs (red)
                     if show_long_term:
                         for i, period in enumerate([30, 35, 40, 45, 50, 60]):
                             fig.add_trace(go.Scatter(
@@ -337,7 +419,7 @@ elif analysis_mode == "单一基金分析":
                                 showlegend=(i == 0)
                             ))
                     
-                    # Add average short-term and long-term EMAs to visualize crossover
+                    # Add average EMAs
                     fig.add_trace(go.Scatter(
                         x=stock_data.index,
                         y=stock_data['avg_short_ema'],
@@ -354,57 +436,72 @@ elif analysis_mode == "单一基金分析":
                         line=dict(color="red", width=2, dash='dot'),
                     ))
                     
-                    # Mark crossover signals on the chart
-                    crossover_dates = stock_data[stock_data['crossover']].index
-                    for date in crossover_dates:
-                        price_at_crossover = stock_data.loc[date, 'close']
-                        # Add vertical line at crossover
-                        fig.add_shape(
-                            type="line",
-                            x0=date,
-                            y0=price_at_crossover * 0.97,
-                            x1=date,
-                            y1=price_at_crossover * 1.03,
-                            line=dict(color="green", width=3),
-                        )
-                        # Add annotation
+                    # Add signals
+                    buy_dates = stock_data[stock_data['buy_signal']].index
+                    sell_dates = stock_data[stock_data['sell_signal']].index
+                    
+                    # Add buy signals
+                    for date in buy_dates:
+                        price_at_signal = stock_data.loc[date, 'close']
                         fig.add_annotation(
                             x=date,
-                            y=price_at_crossover * 1.04,
-                            text="买入信号",
+                            y=price_at_signal * 1.08,
+                            text=f"买入信号 {date.strftime('%Y-%m-%d')}",
                             showarrow=True,
                             arrowhead=1,
                             arrowcolor="green",
                             arrowsize=1,
                             arrowwidth=2,
-                            font=dict(color="green", size=12)
+                            font=dict(color="green", size=12),
+                            ax=0,
+                            ay=-40
                         )
                     
-                    # Count and display the number of signals
-                    signal_count = len(crossover_dates)
-                    if signal_count > 0:
-                        last_signal = crossover_dates[-1].strftime('%Y-%m-%d') if signal_count > 0 else "None"
-                        signal_info = f"**买入信号**: 共 {signal_count} 个, 最近信号日期: {last_signal}"
+                    # Add sell signals
+                    for date in sell_dates:
+                        price_at_signal = stock_data.loc[date, 'close']
                         fig.add_annotation(
-                            x=0.02,
-                            y=0.98,
-                            xref="paper",
-                            yref="paper",
-                            text=signal_info,
-                            showarrow=False,
-                            font=dict(size=14, color="green"),
-                            bgcolor="white",
-                            bordercolor="green",
-                            borderwidth=1,
-                            align="left"
+                            x=date,
+                            y=price_at_signal * 0.92,
+                            text=f"卖出信号 {date.strftime('%Y-%m-%d')}",
+                            showarrow=True,
+                            arrowhead=1,
+                            arrowcolor="red",
+                            arrowsize=1,
+                            arrowwidth=2,
+                            font=dict(color="red", size=12),
+                            ax=0,
+                            ay=40
                         )
                     
-                    # Get market name for title
-                    market_name = "A股"
+                    # Signal summary
+                    buy_count = len(buy_dates)
+                    sell_count = len(sell_dates)
+                    last_buy = buy_dates[-1].strftime('%Y-%m-%d') if buy_count > 0 else "None"
+                    last_sell = sell_dates[-1].strftime('%Y-%m-%d') if sell_count > 0 else "None"
                     
-                    # Customize plot layout
+                    signal_info = (
+                        f"**买入信号**: 共 {buy_count} 个, 最近信号日期: {last_buy}<br>"
+                        f"**卖出信号**: 共 {sell_count} 个, 最近信号日期: {last_sell}"
+                    )
+                    
+                    fig.add_annotation(
+                        x=0.02,
+                        y=0.98,
+                        xref="paper",
+                        yref="paper",
+                        text=signal_info,
+                        showarrow=False,
+                        font=dict(size=14),
+                        bgcolor="white",
+                        bordercolor="black",
+                        borderwidth=1,
+                        align="left"
+                    )
+                    
+                    # Layout
                     fig.update_layout(
-                        title=f"{market_name} {ticker} GMMA 图表 (标记: 短期EMA从下方穿过长期EMA)",
+                        title=f"A股 {ticker} GMMA 图表",
                         xaxis_title="日期",
                         yaxis_title="价格",
                         legend_title="图例",
@@ -412,15 +509,29 @@ elif analysis_mode == "单一基金分析":
                         template="plotly_white"
                     )
                     
-                    # Display the plot in Streamlit
+                    # Display plot
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Display crossover days in a table
-                    if len(crossover_dates) > 0:
-                        st.subheader("买入信号日期")
-                        # Fix the datetime conversion error
-                        signal_dates = [date.strftime('%Y-%m-%d') for date in crossover_dates]
-                        signal_df = pd.DataFrame(signal_dates, columns=["日期"])
-                        st.table(signal_df)
-        except Exception as e:
-            st.error(f"获取数据时出错: {str(e)}")
+                    # Display signal tables
+                    if len(buy_dates) > 0 or len(sell_dates) > 0:
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.subheader("买入信号日期")
+                            if len(buy_dates) > 0:
+                                buy_signal_dates = [date.strftime('%Y-%m-%d') for date in buy_dates]
+                                buy_df = pd.DataFrame(buy_signal_dates, columns=["日期"])
+                                st.table(buy_df)
+                            else:
+                                st.write("无买入信号")
+                        
+                        with col2:
+                            st.subheader("卖出信号日期")
+                            if len(sell_dates) > 0:
+                                sell_signal_dates = [date.strftime('%Y-%m-%d') for date in sell_dates]
+                                sell_df = pd.DataFrame(sell_signal_dates, columns=["日期"])
+                                st.table(sell_df)
+                            else:
+                                st.write("无卖出信号")
+                except Exception as e:
+                    st.error(f"分析基金 {ticker} 时出错: {str(e)}")
