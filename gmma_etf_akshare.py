@@ -64,8 +64,8 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
             # Buy signal: short-term crosses above long-term
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                 stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-            # Sell signal: short-term crosses below long-term
-            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i]:
+            # Sell signal: short-term crosses below long-term AND price is below EMA8
+            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i]:
                 stock_data.loc[stock_data.index[i], 'sell_signal'] = True
         
         # Check if there's a crossover in the last 'days_to_check' days
@@ -77,10 +77,100 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
 
+# Function to perform back testing on buy/sell signals
+def perform_back_testing(stock_data, units=100):
+    """
+    Perform back testing based on buy/sell signals in the stock data.
+    Args:
+        stock_data (DataFrame): DataFrame with 'close', 'buy_signal', and 'sell_signal' columns
+        units (int): Number of units to buy/sell on each signal
+    Returns:
+        dict: Dictionary containing back testing results
+    """
+    # Initialize variables
+    initial_cash = 100000  # Starting with 100,000 units of currency
+    cash = initial_cash
+    position = 0  # Number of units held
+    trades = []
+    
+    # Sort data by date to ensure chronological processing
+    stock_data = stock_data.sort_index()
+    
+    # Process each day in the data
+    for date, row in stock_data.iterrows():
+        price = row['close']
+        
+        # Process buy signal
+        if row['buy_signal'] and cash >= price * units:
+            # Buy units
+            cost = price * units
+            cash -= cost
+            position += units
+            trades.append({
+                'date': date.strftime('%Y-%m-%d'),
+                'action': '买入',
+                'price': price,
+                'units': units,
+                'cost': cost,
+                'cash': cash,
+                'position_value': position * price,
+                'total_value': cash + (position * price)
+            })
+        
+        # Process sell signal
+        elif row['sell_signal'] and position >= units:
+            # Sell units
+            proceeds = price * units
+            cash += proceeds
+            position -= units
+            trades.append({
+                'date': date.strftime('%Y-%m-%d'),
+                'action': '卖出',
+                'price': price,
+                'units': units,
+                'proceeds': proceeds,
+                'cash': cash,
+                'position_value': position * price,
+                'total_value': cash + (position * price)
+            })
+    
+    # Calculate final results
+    final_price = stock_data['close'].iloc[-1]
+    final_position_value = position * final_price
+    final_value = cash + final_position_value
+    
+    # Buy and hold comparison
+    buy_and_hold_units = initial_cash // stock_data['close'].iloc[0]
+    buy_and_hold_value = buy_and_hold_units * final_price
+    
+    # Calculate returns
+    signal_return_pct = ((final_value - initial_cash) / initial_cash) * 100
+    buy_hold_return_pct = ((buy_and_hold_value - initial_cash) / initial_cash) * 100
+    
+    # Results
+    results = {
+        'initial_cash': initial_cash,
+        'final_cash': cash,
+        'final_position': position,
+        'final_position_value': final_position_value,
+        'final_value': final_value,
+        'signal_return_pct': signal_return_pct,
+        'buy_hold_units': buy_and_hold_units,
+        'buy_hold_value': buy_and_hold_value,
+        'buy_hold_return_pct': buy_hold_return_pct,
+        'trades': trades
+    }
+    
+    return results
 
 # Sidebar options
 st.sidebar.title("分析模式")
 analysis_mode = st.sidebar.radio("选择模式", ["指定基金分析", "基金全扫描"], index=0)
+
+# Add backtest operations units input to sidebar
+st.sidebar.title("回测设置")
+backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
+                                          help="每次买入或卖出信号触发时的操作单位数")
 
 if analysis_mode == "基金全扫描":
     st.sidebar.title("基金扫描设置")
@@ -277,6 +367,46 @@ if analysis_mode == "基金全扫描":
                                         st.table(sell_df)
                                     else:
                                         st.write("无卖出信号")
+                            
+                            # Add back testing section
+                            st.subheader("回归测试")
+                            st.markdown(f"""该回归测试模拟了严格按照买入和卖出信号操作的结果，每次操作购买或卖出{backtest_units}单位，以验证信号的有效性。""")
+                            
+                            # Perform back testing with user-defined units
+                            backtest_results = perform_back_testing(stock_data, units=backtest_units)
+                            
+                            # Display results
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric(
+                                    label="信号策略最终价值", 
+                                    value=f"¥{backtest_results['final_value']:,.2f}",
+                                    delta=f"{backtest_results['signal_return_pct']:.2f}%"
+                                )
+                                
+                            with col2:
+                                st.metric(
+                                    label="买入并持有策略", 
+                                    value=f"¥{backtest_results['buy_hold_value']:,.2f}",
+                                    delta=f"{backtest_results['buy_hold_return_pct']:.2f}%"
+                                )
+                                
+                            with col3:
+                                delta = backtest_results['signal_return_pct'] - backtest_results['buy_hold_return_pct']
+                                st.metric(
+                                    label="信号vs买入持有", 
+                                    value=f"{delta:.2f}%",
+                                    delta=delta
+                                )
+                            
+                            # Display trades table
+                            if backtest_results['trades']:
+                                st.subheader("交易记录")
+                                trades_df = pd.DataFrame(backtest_results['trades'])
+                                st.dataframe(trades_df, use_container_width=True)
+                            else:
+                                st.warning("回测期间没有产生交易。")
                     
                     # Check if we have found enough stocks
                     if len(crossover_stocks) >= hk_max_stocks:
@@ -328,7 +458,7 @@ elif analysis_mode == "指定基金分析":
     
     # Calculate date range for the past 6 months
     end_date = datetime.today().strftime('%Y%m%d')
-    start_date = (datetime.today() - timedelta(days=365)).strftime('%Y%m%d')
+    start_date = (datetime.today() - timedelta(days=920)).strftime('%Y%m%d')
     
     # Create tabs for each fund
     tabs = st.tabs(fund_list)
@@ -376,7 +506,7 @@ elif analysis_mode == "指定基金分析":
                     for i in range(1, len(stock_data)):
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                             stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i]:
+                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i]:
                             stock_data.loc[stock_data.index[i], 'sell_signal'] = True
                     
                     # Create figure
@@ -533,5 +663,45 @@ elif analysis_mode == "指定基金分析":
                                 st.table(sell_df)
                             else:
                                 st.write("无卖出信号")
+                        
+                        # Add back testing section
+                        st.subheader("回归测试")
+                        st.markdown(f"""该回归测试模拟了严格按照买入和卖出信号操作的结果，每次操作购买或卖出{backtest_units}单位，以验证信号的有效性。""")
+                        
+                        # Perform back testing with user-defined units
+                        backtest_results = perform_back_testing(stock_data, units=backtest_units)
+                        
+                        # Display results
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric(
+                                label="信号策略最终价值", 
+                                value=f"¥{backtest_results['final_value']:,.2f}",
+                                delta=f"{backtest_results['signal_return_pct']:.2f}%"
+                            )
+                            
+                        with col2:
+                            st.metric(
+                                label="买入并持有策略", 
+                                value=f"¥{backtest_results['buy_hold_value']:,.2f}",
+                                delta=f"{backtest_results['buy_hold_return_pct']:.2f}%"
+                            )
+                            
+                        with col3:
+                            delta = backtest_results['signal_return_pct'] - backtest_results['buy_hold_return_pct']
+                            st.metric(
+                                label="信号vs买入持有", 
+                                value=f"{delta:.2f}%",
+                                delta=delta
+                            )
+                        
+                        # Display trades table
+                        if backtest_results['trades']:
+                            st.subheader("交易记录")
+                            trades_df = pd.DataFrame(backtest_results['trades'])
+                            st.dataframe(trades_df, use_container_width=True)
+                        else:
+                            st.warning("回测期间没有产生交易。")
                 except Exception as e:
                     st.error(f"分析基金 {ticker} 时出错: {str(e)}")
