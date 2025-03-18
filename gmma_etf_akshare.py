@@ -24,8 +24,29 @@ st.markdown("""
 可以分析单个股票或自动扫描最近出现买入信号的股票。
 """)
 
+# Sidebar options
+st.sidebar.title("分析模式")
+analysis_mode = st.sidebar.radio("选择模式", ["指定基金分析", "基金全扫描"], index=0)
+
+# Add short-term EMA selection for sell signal
+st.sidebar.title("信号设置")
+sell_signal_ema = st.sidebar.selectbox(
+    "卖出信号比较的短期EMA", 
+    options=["EMA3", "EMA5", "EMA8", "EMA10"],
+    index=2,  # Default to EMA8
+    help="当价格低于所选EMA且短期EMA交叉长期EMA向下时，触发卖出信号"
+)
+
+# Add backtest operations units input to sidebar
+st.sidebar.title("回测设置")
+backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
+                                          help="每次买入或卖出信号触发时的操作单位数")
+
+# Display current settings
+st.sidebar.markdown(f"**当前卖出信号设置**: 当短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**时产生卖出信号")
+
 # Function to check if a stock has a recent crossover
-def has_recent_crossover(ticker, days_to_check=3, market="A"):
+def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None):
     try:
         # Calculate date range for the past 2 months (enough data to calculate EMAs)
         end_date = datetime.today().strftime('%Y%m%d')
@@ -59,13 +80,16 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
         stock_data['buy_signal'] = False
         stock_data['sell_signal'] = False
         
+        # Use the provided EMA for sell signal or default to the global setting
+        sell_ema = ema_for_sell if ema_for_sell else sell_signal_ema
+        
         # Find both buy and sell signals
         for i in range(1, len(stock_data)):
             # Buy signal: short-term crosses above long-term
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                 stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-            # Sell signal: short-term crosses below long-term AND price is below EMA8
-            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i]:
+            # Sell signal: short-term crosses below long-term AND price is below selected EMA
+            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data[sell_ema].iloc[i]:
                 stock_data.loc[stock_data.index[i], 'sell_signal'] = True
         
         # Check if there's a crossover in the last 'days_to_check' days
@@ -163,15 +187,6 @@ def perform_back_testing(stock_data, units=100):
     
     return results
 
-# Sidebar options
-st.sidebar.title("分析模式")
-analysis_mode = st.sidebar.radio("选择模式", ["指定基金分析", "基金全扫描"], index=0)
-
-# Add backtest operations units input to sidebar
-st.sidebar.title("回测设置")
-backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
-                                          help="每次买入或卖出信号触发时的操作单位数")
-
 if analysis_mode == "基金全扫描":
     st.sidebar.title("基金扫描设置")
     hk_days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 4)
@@ -202,8 +217,8 @@ if analysis_mode == "基金全扫描":
                     ticker = row['基金代码']
                     name = row['基金名称']
                     
-                    # Check for crossover using our modified function with HK market parameter
-                    has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="A")
+                    # Check for crossover using our modified function with HK market parameter and selected EMA
+                    has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="A", ema_for_sell=sell_signal_ema)
                     
                     if has_crossover:
                         # Add to crossover list
@@ -368,6 +383,9 @@ if analysis_mode == "基金全扫描":
                                     else:
                                         st.write("无卖出信号")
                             
+                            # Display notification about which EMA is used for sell signals
+                            st.info(f"当前卖出信号条件: 短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**")
+                            
                             # Add back testing section
                             st.subheader("回归测试")
                             st.markdown(f"""该回归测试模拟了严格按照买入和卖出信号操作的结果，每次操作购买或卖出{backtest_units}单位，以验证信号的有效性。""")
@@ -453,6 +471,9 @@ elif analysis_mode == "指定基金分析":
     show_short_term = st.sidebar.checkbox("显示短期 EMA", value=True)
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
     
+    # Display selected EMA for sell signals at top of main area
+    st.info(f"当前卖出信号条件: 短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**")
+    
     # Process the input funds
     fund_list = [fund.strip() for fund in funds_input.split(",") if fund.strip()]
     
@@ -506,7 +527,7 @@ elif analysis_mode == "指定基金分析":
                     for i in range(1, len(stock_data)):
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                             stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i]:
+                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data[sell_signal_ema].iloc[i]:
                             stock_data.loc[stock_data.index[i], 'sell_signal'] = True
                     
                     # Create figure
