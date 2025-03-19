@@ -34,7 +34,7 @@ sell_signal_ema = st.sidebar.selectbox(
     "卖出信号比较的短期EMA", 
     options=["EMA3", "EMA5", "EMA8", "EMA10"],
     index=2,  # Default to EMA8
-    help="当价格低于所选EMA且短期EMA交叉长期EMA向下时，触发卖出信号"
+    help="当价格低于所选EMA时，可能触发卖出信号"
 )
 
 # Add backtest operations units input to sidebar
@@ -43,7 +43,7 @@ backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, m
                                           help="每次买入或卖出信号触发时的操作单位数")
 
 # Display current settings
-st.sidebar.markdown(f"**当前卖出信号设置**: 当短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**时产生卖出信号")
+st.sidebar.markdown(f"**当前卖出信号设置**: 当价格低于买入信号时的价格，或价格低于**{sell_signal_ema}**时产生卖出信号")
 
 # Function to check if a stock has a recent crossover
 def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None):
@@ -80,17 +80,29 @@ def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None)
         stock_data['buy_signal'] = False
         stock_data['sell_signal'] = False
         
-        # Use the provided EMA for sell signal or default to the global setting
-        sell_ema = ema_for_sell if ema_for_sell else sell_signal_ema
+        # Track if we're in a position (bought but not yet sold)
+        in_position = False
+        last_buy_price = None
+        last_buy_index = -1
         
         # Find both buy and sell signals
         for i in range(1, len(stock_data)):
             # Buy signal: short-term crosses above long-term
-            if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
+            if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i] and not in_position:
                 stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-            # Sell signal: short-term crosses below long-term AND price is below selected EMA
-            elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data[sell_ema].iloc[i]:
+                last_buy_price = stock_data['close'].iloc[i]
+                last_buy_index = i
+                in_position = True
+            
+            # Sell signal - only if we're in a position and one of these conditions is met:
+            # 1. Close price is lower than previous close price for the most recent "buying_signal"
+            # 2. Close price is lower than EMA8
+            elif in_position and (
+                (last_buy_price is not None and i > last_buy_index and stock_data['close'].iloc[i] < last_buy_price) or 
+                (stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i])
+            ):
                 stock_data.loc[stock_data.index[i], 'sell_signal'] = True
+                in_position = False  # Reset position status after selling
         
         # Check if there's a crossover in the last 'days_to_check' days
         recent_data = stock_data.iloc[-days_to_check:]
@@ -124,8 +136,8 @@ def perform_back_testing(stock_data, units=100):
     for date, row in stock_data.iterrows():
         price = row['close']
         
-        # Process buy signal
-        if row['buy_signal'] and cash >= price * units:
+        # Process buy signal (only if not already in a position)
+        if row['buy_signal'] and cash >= price * units and position == 0:
             # Buy units
             cost = price * units
             cash -= cost
@@ -141,7 +153,7 @@ def perform_back_testing(stock_data, units=100):
                 'total_value': cash + (position * price)
             })
         
-        # Process sell signal
+        # Process sell signal (only if we have a position)
         elif row['sell_signal'] and position >= units:
             # Sell units
             proceeds = price * units
@@ -384,7 +396,7 @@ if analysis_mode == "基金全扫描":
                                         st.write("无卖出信号")
                             
                             # Display notification about which EMA is used for sell signals
-                            st.info(f"当前卖出信号条件: 短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**")
+                            st.info(f"当前卖出信号条件: 1) 价格低于买入信号时的价格，或 2) 价格低于**{sell_signal_ema}**")
                             
                             # Add back testing section
                             st.subheader("回归测试")
@@ -471,8 +483,8 @@ elif analysis_mode == "指定基金分析":
     show_short_term = st.sidebar.checkbox("显示短期 EMA", value=True)
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
     
-    # Display selected EMA for sell signals at top of main area
-    st.info(f"当前卖出信号条件: 短期均线交叉长期均线向下**且**价格低于**{sell_signal_ema}**")
+    # Update the sell signal info message
+    st.info(f"当前卖出信号条件: 1) 价格低于买入信号时的价格，或 2) 价格低于EMA8")
     
     # Process the input funds
     fund_list = [fund.strip() for fund in funds_input.split(",") if fund.strip()]
@@ -523,12 +535,28 @@ elif analysis_mode == "指定基金分析":
                     stock_data['buy_signal'] = False
                     stock_data['sell_signal'] = False
                     
+                    # Track position status and buy price
+                    in_position = False
+                    last_buy_price = None
+                    last_buy_index = -1
+                    
                     # Find signals
                     for i in range(1, len(stock_data)):
-                        if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
+                        if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i] and not in_position:
                             stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-                        elif stock_data['short_above_long'].iloc[i-1] and not stock_data['short_above_long'].iloc[i] and stock_data['close'].iloc[i] < stock_data[sell_signal_ema].iloc[i]:
+                            last_buy_price = stock_data['close'].iloc[i]
+                            last_buy_index = i
+                            in_position = True
+                        
+                        # Sell signal - only if we're in a position and one of these conditions is met:
+                        # 1. Close price is lower than previous close price for the most recent "buying_signal"
+                        # 2. Close price is lower than EMA8
+                        elif in_position and (
+                            (last_buy_price is not None and i > last_buy_index and stock_data['close'].iloc[i] < last_buy_price) or 
+                            (stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i])
+                        ):
                             stock_data.loc[stock_data.index[i], 'sell_signal'] = True
+                            in_position = False  # Reset position status after selling
                     
                     # Create figure
                     fig = go.Figure()
