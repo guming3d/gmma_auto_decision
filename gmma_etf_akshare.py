@@ -38,9 +38,9 @@ sell_signal_ema = st.sidebar.selectbox(
 )
 
 # Add backtest operations units input to sidebar
-st.sidebar.title("回测设置")
-backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
-                                          help="每次买入或卖出信号触发时的操作单位数")
+# st.sidebar.title("回测设置")
+# backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
+#                                           help="每次买入或卖出信号触发时的操作单位数")
 
 # Display current settings
 st.sidebar.markdown(f"**当前卖出信号设置**: 当价格低于买入信号时的价格，或价格低于**{sell_signal_ema}**时产生卖出信号")
@@ -119,7 +119,7 @@ def perform_back_testing(stock_data, units=100):
     Perform back testing based on buy/sell signals in the stock data.
     Args:
         stock_data (DataFrame): DataFrame with 'close', 'buy_signal', and 'sell_signal' columns
-        units (int): Number of units to buy/sell on each signal
+        units (int): Number of units to buy/sell on each signal (not used in the updated logic)
     Returns:
         dict: Dictionary containing back testing results
     """
@@ -129,6 +129,10 @@ def perform_back_testing(stock_data, units=100):
     position = 0  # Number of units held
     trades = []
     
+    # Variables to track purchase information
+    last_buy_price = None
+    last_buy_units = 0
+    
     # Sort data by date to ensure chronological processing
     stock_data = stock_data.sort_index()
     
@@ -137,38 +141,59 @@ def perform_back_testing(stock_data, units=100):
         price = row['close']
         
         # Process buy signal (only if not already in a position)
-        if row['buy_signal'] and cash >= price * units and position == 0:
-            # Buy units
-            cost = price * units
-            cash -= cost
-            position += units
-            trades.append({
-                'date': date.strftime('%Y-%m-%d'),
-                'action': '买入',
-                'price': price,
-                'units': units,
-                'cost': cost,
-                'cash': cash,
-                'position_value': position * price,
-                'total_value': cash + (position * price)
-            })
+        if row['buy_signal'] and cash > 0 and position == 0:
+            # Buy as many units as possible with available cash
+            max_units = cash // price
+            if max_units > 0:
+                cost = price * max_units
+                cash -= cost
+                position += max_units
+                
+                # Store buy price and units for later gain/loss calculation
+                last_buy_price = price
+                last_buy_units = max_units
+                
+                trades.append({
+                    'date': date.strftime('%Y-%m-%d'),
+                    'action': '买入',
+                    'price': price,
+                    'units': max_units,
+                    'cost': cost,
+                    'cash': cash,
+                    'position_value': position * price,
+                    'total_value': cash + (position * price)
+                })
         
         # Process sell signal (only if we have a position)
-        elif row['sell_signal'] and position >= units:
-            # Sell units
-            proceeds = price * units
+        elif row['sell_signal'] and position > 0:
+            # Sell all units
+            proceeds = price * position
             cash += proceeds
-            position -= units
+            
+            # Calculate gain/loss information
+            gain_loss = 0
+            gain_loss_pct = 0
+            if last_buy_price is not None:
+                gain_loss = (price - last_buy_price) * position
+                gain_loss_pct = ((price / last_buy_price) - 1) * 100
+            
             trades.append({
                 'date': date.strftime('%Y-%m-%d'),
                 'action': '卖出',
                 'price': price,
-                'units': units,
+                'units': position,
                 'proceeds': proceeds,
+                'gain_loss': gain_loss,
+                'gain_loss_pct': gain_loss_pct,
                 'cash': cash,
-                'position_value': position * price,
-                'total_value': cash + (position * price)
+                'position_value': 0,
+                'total_value': cash
             })
+            
+            # Reset position after selling all
+            position = 0
+            last_buy_price = None
+            last_buy_units = 0
     
     # Calculate final results
     final_price = stock_data['close'].iloc[-1]
@@ -434,7 +459,31 @@ if analysis_mode == "基金全扫描":
                             if backtest_results['trades']:
                                 st.subheader("交易记录")
                                 trades_df = pd.DataFrame(backtest_results['trades'])
-                                st.dataframe(trades_df, use_container_width=True)
+                                
+                                # Format gain/loss columns
+                                if 'gain_loss' in trades_df.columns:
+                                    # Function to color-code gain/loss values
+                                    def color_gain_loss(val):
+                                        if pd.isna(val):
+                                            return ''
+                                        color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+                                        return f'color: {color}'
+                                    
+                                    # First apply styling to the numeric data
+                                    styled_df = trades_df.style.applymap(
+                                        color_gain_loss, 
+                                        subset=['gain_loss', 'gain_loss_pct']
+                                    )
+                                    
+                                    # Then format the display values (this doesn't affect the styling)
+                                    styled_df = styled_df.format({
+                                        'gain_loss': lambda x: f"¥{x:,.2f}" if not pd.isna(x) else "",
+                                        'gain_loss_pct': lambda x: f"{x:.2f}%" if not pd.isna(x) else ""
+                                    })
+                                    
+                                    st.dataframe(styled_df, use_container_width=True)
+                                else:
+                                    st.dataframe(trades_df, use_container_width=True)
                             else:
                                 st.warning("回测期间没有产生交易。")
                     
@@ -749,7 +798,31 @@ elif analysis_mode == "指定基金分析":
                         if backtest_results['trades']:
                             st.subheader("交易记录")
                             trades_df = pd.DataFrame(backtest_results['trades'])
-                            st.dataframe(trades_df, use_container_width=True)
+                            
+                            # Format gain/loss columns
+                            if 'gain_loss' in trades_df.columns:
+                                # Function to color-code gain/loss values
+                                def color_gain_loss(val):
+                                    if pd.isna(val):
+                                        return ''
+                                    color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+                                    return f'color: {color}'
+                                
+                                # First apply styling to the numeric data
+                                styled_df = trades_df.style.applymap(
+                                    color_gain_loss, 
+                                    subset=['gain_loss', 'gain_loss_pct']
+                                )
+                                
+                                # Then format the display values (this doesn't affect the styling)
+                                styled_df = styled_df.format({
+                                    'gain_loss': lambda x: f"¥{x:,.2f}" if not pd.isna(x) else "",
+                                    'gain_loss_pct': lambda x: f"{x:.2f}%" if not pd.isna(x) else ""
+                                })
+                                
+                                st.dataframe(styled_df, use_container_width=True)
+                            else:
+                                st.dataframe(trades_df, use_container_width=True)
                         else:
                             st.warning("回测期间没有产生交易。")
                 except Exception as e:
