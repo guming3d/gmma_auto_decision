@@ -38,9 +38,27 @@ sell_signal_ema = st.sidebar.selectbox(
 )
 
 # Add backtest operations units input to sidebar
-st.sidebar.title("回测设置")
-backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
-                                         help="每次买入或卖出信号触发时的操作单位数")
+# st.sidebar.title("回测设置")
+backtest_units = 100
+
+# Add historical data period selection
+history_period = st.sidebar.selectbox(
+    "历史数据周期",
+    options=["6年", "3年", "2年", "1年", "6个月", "3个月"],
+    index=2,  # Default to 2年
+    help="选择用于分析和回测的历史数据范围"
+)
+
+# Convert selected period to days
+period_days = {
+    "6年": 365 * 6,
+    "3年": 365 * 3,
+    "2年": 365 * 2,
+    "1年": 365,
+    "6个月": 180,
+    "3个月": 90
+}
+history_days = period_days[history_period]
 
 # Display current settings
 st.sidebar.markdown(f"**当前卖出信号设置**: 当价格低于买入信号时的价格，或价格低于**{sell_signal_ema}**时产生卖出信号")
@@ -253,6 +271,10 @@ if analysis_mode == "基金全扫描":
                     
                     ticker = row['基金代码']
                     name = row['基金名称']
+                    
+                    # Calculate date range using the selected history period instead of fixed 920 days
+                    end_date = datetime.today().strftime('%Y%m%d')
+                    start_date = (datetime.today() - timedelta(days=history_days)).strftime('%Y%m%d')
                     
                     # Check for crossover using our modified function with HK market parameter and selected EMA
                     has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="A", ema_for_sell=sell_signal_ema)
@@ -538,9 +560,9 @@ elif analysis_mode == "指定基金分析":
     # Process the input funds
     fund_list = [fund.strip() for fund in funds_input.split(",") if fund.strip()]
     
-    # Calculate date range for the past 6 months
+    # Calculate date range using the selected history period
     end_date = datetime.today().strftime('%Y%m%d')
-    start_date = (datetime.today() - timedelta(days=920)).strftime('%Y%m%d')
+    start_date = (datetime.today() - timedelta(days=history_days)).strftime('%Y%m%d')
     
     # Create tabs for each fund
     tabs = st.tabs(fund_list)
