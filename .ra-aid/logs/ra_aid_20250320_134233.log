@@ -1,0 +1,667 @@
+2025-03-20 13:42:33,248 - ra_aid - DEBUG - Logging configuration: log_mode=file, log_level=debug, root_level=10, logger_level=10, console_level=30, file_level=10, propagate=True
+2025-03-20 13:42:33,248 - ra_aid - INFO - Log file created: /home/minggu/projects_code/gmma_auto_decision/.ra-aid/logs/ra_aid_20250320_134233.log
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.__main__ - DEBUG - Starting RA.Aid with arguments: Namespace(message='explain current repo to me ', research_only=False, provider='gemini', model='gemini-1.5-pro-latest', num_ctx=262144, research_provider=None, research_model=None, planner_provider=None, planner_model=None, cowboy_mode=False, expert_provider='openai', expert_model=None, expert_num_ctx=262144, hil=False, chat=False, log_mode='file', pretty_logger=False, log_level='debug', temperature=None, disable_limit_tokens=True, experimental_fallback_handler=False, recursion_limit=100, aider_config=None, use_aider=False, test_cmd=None, auto_test=False, max_test_cmd_retries=3, test_cmd_timeout=300, server=False, server_host='0.0.0.0', server_port=1818, wipe_project_memory=False, project_state_dir=None, show_thoughts=False, show_cost=False, track_cost=False, reasoning_assistance=False, no_reasoning_assistance=False)
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Base directory for database: /home/minggu/projects_code/gmma_auto_decision
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Creating database directory at: /home/minggu/projects_code/gmma_auto_decision/.ra-aid
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Directory already exists, skipping creation
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Directory verification: Path.exists=True, os.path.exists=True, os.path.isdir=True
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Parent directory /home/minggu/projects_code/gmma_auto_decision permissions: 755
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Parent directory contents: ['gmma_akshare.py', 'cache', 'README.md', 'requirements.txt', 'gmma_etf_akshare.py', 'gmma_hk_akshare.py', 'images', '__pycache__', '.streamlit', '.ra-aid', '.git', '.venv']
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Directory created/verified: /home/minggu/projects_code/gmma_auto_decision/.ra-aid with permissions 755
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Directory contents: ['pk.db', 'logs']
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Database path: /home/minggu/projects_code/gmma_auto_decision/.ra-aid/pk.db
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Database file exists check: True
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Initializing SQLite database at: /home/minggu/projects_code/gmma_auto_decision/.ra-aid/pk.db
+2025-03-20 13:42:33,248 - ra_aid.ra_aid.database.connection - DEBUG - Explicitly connecting to database
+2025-03-20 13:42:33,249 - peewee - DEBUG - ('SELECT 1', None)
+2025-03-20 13:42:33,249 - ra_aid.ra_aid.database.connection - DEBUG - Database connection verified with test query
+2025-03-20 13:42:33,249 - ra_aid.ra_aid.database.connection - DEBUG - Database file check after init: exists=True, size=122880 bytes
+2025-03-20 13:42:33,249 - ra_aid.ra_aid.database.connection - DEBUG - Database connection initialized successfully
+2025-03-20 13:42:33,249 - ra_aid.ra_aid.database.models - DEBUG - Initializing database proxy
+2025-03-20 13:42:33,249 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "session" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "start_time" DATETIME NOT NULL, "command_line" TEXT, "program_version" TEXT, "machine_info" TEXT)', [])
+2025-03-20 13:42:33,250 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "human_input" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "source" TEXT NOT NULL, "session_id" INTEGER, FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,250 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "humaninput_session_id" ON "human_input" ("session_id")', [])
+2025-03-20 13:42:33,250 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "key_fact" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,250 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keyfact_human_input_id" ON "key_fact" ("human_input_id")', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keyfact_session_id" ON "key_fact" ("session_id")', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "key_snippet" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "filepath" TEXT NOT NULL, "line_number" INTEGER NOT NULL, "snippet" TEXT NOT NULL, "description" TEXT, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keysnippet_human_input_id" ON "key_snippet" ("human_input_id")', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keysnippet_session_id" ON "key_snippet" ("session_id")', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "research_note" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,251 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "researchnote_human_input_id" ON "research_note" ("human_input_id")', [])
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "researchnote_session_id" ON "research_note" ("session_id")', [])
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "trajectory" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "human_input_id" INTEGER, "tool_name" TEXT, "tool_parameters" TEXT, "tool_result" TEXT, "step_data" TEXT, "record_type" TEXT, "current_cost" REAL, "input_tokens" INTEGER, "output_tokens" INTEGER, "is_error" INTEGER NOT NULL, "error_message" TEXT, "error_type" TEXT, "error_details" TEXT, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "trajectory_human_input_id" ON "trajectory" ("human_input_id")', [])
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "trajectory_session_id" ON "trajectory" ("session_id")', [])
+2025-03-20 13:42:33,252 - ra_aid.ra_aid.database.models - DEBUG - Ensured database tables exist
+2025-03-20 13:42:33,252 - ra_aid.ra_aid.database.models - DEBUG - Database proxy already initialized
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "session" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "start_time" DATETIME NOT NULL, "command_line" TEXT, "program_version" TEXT, "machine_info" TEXT)', [])
+2025-03-20 13:42:33,252 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "human_input" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "source" TEXT NOT NULL, "session_id" INTEGER, FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "humaninput_session_id" ON "human_input" ("session_id")', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "key_fact" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keyfact_human_input_id" ON "key_fact" ("human_input_id")', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keyfact_session_id" ON "key_fact" ("session_id")', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "key_snippet" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "filepath" TEXT NOT NULL, "line_number" INTEGER NOT NULL, "snippet" TEXT NOT NULL, "description" TEXT, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keysnippet_human_input_id" ON "key_snippet" ("human_input_id")', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "keysnippet_session_id" ON "key_snippet" ("session_id")', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "research_note" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "content" TEXT NOT NULL, "human_input_id" INTEGER, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,253 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "researchnote_human_input_id" ON "research_note" ("human_input_id")', [])
+2025-03-20 13:42:33,254 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "researchnote_session_id" ON "research_note" ("session_id")', [])
+2025-03-20 13:42:33,254 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "trajectory" ("id" INTEGER NOT NULL PRIMARY KEY, "created_at" DATETIME NOT NULL, "updated_at" DATETIME NOT NULL, "human_input_id" INTEGER, "tool_name" TEXT, "tool_parameters" TEXT, "tool_result" TEXT, "step_data" TEXT, "record_type" TEXT, "current_cost" REAL, "input_tokens" INTEGER, "output_tokens" INTEGER, "is_error" INTEGER NOT NULL, "error_message" TEXT, "error_type" TEXT, "error_details" TEXT, "session_id" INTEGER, FOREIGN KEY ("human_input_id") REFERENCES "human_input" ("id"), FOREIGN KEY ("session_id") REFERENCES "session" ("id"))', [])
+2025-03-20 13:42:33,254 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "trajectory_human_input_id" ON "trajectory" ("human_input_id")', [])
+2025-03-20 13:42:33,254 - peewee - DEBUG - ('CREATE INDEX IF NOT EXISTS "trajectory_session_id" ON "trajectory" ("session_id")', [])
+2025-03-20 13:42:33,254 - ra_aid.ra_aid.database.models - DEBUG - Ensured database tables exist
+2025-03-20 13:42:33,254 - ra_aid.ra_aid.database.migrations - DEBUG - Using migrations directory: /home/minggu/projects_code/gmma_auto_decision/.venv/lib/python3.12/site-packages/ra_aid/migrations
+2025-03-20 13:42:33,254 - ra_aid.ra_aid.database.migrations - DEBUG - Initialized migration router with table: migrationshistory
+2025-03-20 13:42:33,254 - peewee - DEBUG - ('CREATE TABLE IF NOT EXISTS "migrationshistory" ("id" INTEGER NOT NULL PRIMARY KEY, "name" VARCHAR(255) NOT NULL, "migrated_at" DATETIME NOT NULL)', [])
+2025-03-20 13:42:33,255 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."name", "t1"."migrated_at" FROM "migrationshistory" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:33,256 - ra_aid.ra_aid.database.migrations - DEBUG - Found 13 applied migrations and 0 pending migrations
+2025-03-20 13:42:33,256 - ra_aid.ra_aid.database.migrations - INFO - No pending migrations to apply
+2025-03-20 13:42:33,256 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized SessionRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized KeyFactRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized KeySnippetRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized HumanInputRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized ResearchNoteRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized RelatedFilesRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized TrajectoryRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized WorkLogRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized ConfigRepository
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initialized Environment Inventory
+2025-03-20 13:42:35,549 - ra_aid.ra_aid.__main__ - DEBUG - Initializing new session
+2025-03-20 13:42:35,549 - peewee - DEBUG - ('INSERT INTO "session" ("created_at", "updated_at", "start_time", "command_line", "program_version", "machine_info") VALUES (?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 35, 549553), datetime.datetime(2025, 3, 20, 13, 42, 35, 549567), datetime.datetime(2025, 3, 20, 13, 42, 35, 549543), '/home/minggu/projects_code/gmma_auto_decision/.venv/bin/ra-aid -m explain current repo to me  --provider gemini --model gemini-1.5-pro-latest', '0.18.0', None])
+2025-03-20 13:42:35,556 - ra_aid.ra_aid.database.repositories.session_repository - DEBUG - Created new session with ID 4
+2025-03-20 13:42:35,556 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."start_time", "t1"."command_line", "t1"."program_version", "t1"."machine_info" FROM "session" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [4, 1, 0])
+2025-03-20 13:42:35,557 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."start_time", "t1"."command_line", "t1"."program_version", "t1"."machine_info" FROM "session" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [4, 1, 0])
+2025-03-20 13:42:35,557 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."session_id" = ?) ORDER BY "t1"."id" LIMIT ?', [4, 1])
+2025-03-20 13:42:35,567 - openai._base_client - DEBUG - Request options: {'method': 'get', 'url': '/models', 'post_parser': <function SyncAPIClient._request_api_list.<locals>._parser at 0x7f2b61b089a0>, 'json_data': None}
+2025-03-20 13:42:35,570 - openai._base_client - DEBUG - Sending HTTP Request: GET https://api.openai.com/v1/models
+2025-03-20 13:42:35,570 - httpcore.connection - DEBUG - connect_tcp.started host='api.openai.com' port=443 local_address=None timeout=5.0 socket_options=None
+2025-03-20 13:42:35,696 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7f2b5b2da2a0>
+2025-03-20 13:42:35,696 - httpcore.connection - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x7f2b5b2cacd0> server_hostname='api.openai.com' timeout=5.0
+2025-03-20 13:42:35,759 - httpcore.connection - DEBUG - start_tls.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7f2b5b2da1b0>
+2025-03-20 13:42:35,759 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'GET']>
+2025-03-20 13:42:35,760 - httpcore.http11 - DEBUG - send_request_headers.complete
+2025-03-20 13:42:35,761 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'GET']>
+2025-03-20 13:42:35,761 - httpcore.http11 - DEBUG - send_request_body.complete
+2025-03-20 13:42:35,761 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'GET']>
+2025-03-20 13:42:36,496 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Thu, 20 Mar 2025 05:42:37 GMT'), (b'Content-Type', b'application/json'), (b'Transfer-Encoding', b'chunked'), (b'Connection', b'keep-alive'), (b'openai-version', b'2020-10-01'), (b'x-request-id', b'a5aa775f180822ff18ecdec06ba5727c'), (b'openai-processing-ms', b'360'), (b'strict-transport-security', b'max-age=31536000; includeSubDomains; preload'), (b'cf-cache-status', b'DYNAMIC'), (b'Set-Cookie', b'__cf_bm=rDBDgvkTftCDae29TXHUFRppgaTHU6Wh0QLjd6clCIs-1742449357-1.0.1.1-b2D0NaV8838OjiK.N5YEolD3uwT5_m_.IUWe5QTmQWannzLJAMxcdZyzUFhboMPXg_LVlMtp4XUtXpAzrz9UL7duTCqopnOE3sUAxiEC950; path=/; expires=Thu, 20-Mar-25 06:12:37 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None'), (b'X-Content-Type-Options', b'nosniff'), (b'Set-Cookie', b'_cfuvid=GkQGsJEiYZNolWNlvAlsYgcoPsl1d.770ywt_khGnnE-1742449357277-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None'), (b'Server', b'cloudflare'), (b'CF-RAY', b'9232e31e9e2de38e-NRT'), (b'Content-Encoding', b'gzip'), (b'alt-svc', b'h3=":443"; ma=86400')])
+2025-03-20 13:42:36,498 - httpx - INFO - HTTP Request: GET https://api.openai.com/v1/models "HTTP/1.1 200 OK"
+2025-03-20 13:42:36,498 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'GET']>
+2025-03-20 13:42:36,500 - httpcore.http11 - DEBUG - receive_response_body.complete
+2025-03-20 13:42:36,501 - httpcore.http11 - DEBUG - response_closed.started
+2025-03-20 13:42:36,501 - httpcore.http11 - DEBUG - response_closed.complete
+2025-03-20 13:42:36,501 - openai._base_client - DEBUG - HTTP Response: GET https://api.openai.com/v1/models "200 OK" Headers([('date', 'Thu, 20 Mar 2025 05:42:37 GMT'), ('content-type', 'application/json'), ('transfer-encoding', 'chunked'), ('connection', 'keep-alive'), ('openai-version', '2020-10-01'), ('x-request-id', 'a5aa775f180822ff18ecdec06ba5727c'), ('openai-processing-ms', '360'), ('strict-transport-security', 'max-age=31536000; includeSubDomains; preload'), ('cf-cache-status', 'DYNAMIC'), ('set-cookie', '__cf_bm=rDBDgvkTftCDae29TXHUFRppgaTHU6Wh0QLjd6clCIs-1742449357-1.0.1.1-b2D0NaV8838OjiK.N5YEolD3uwT5_m_.IUWe5QTmQWannzLJAMxcdZyzUFhboMPXg_LVlMtp4XUtXpAzrz9UL7duTCqopnOE3sUAxiEC950; path=/; expires=Thu, 20-Mar-25 06:12:37 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None'), ('x-content-type-options', 'nosniff'), ('set-cookie', '_cfuvid=GkQGsJEiYZNolWNlvAlsYgcoPsl1d.770ywt_khGnnE-1742449357277-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None'), ('server', 'cloudflare'), ('cf-ray', '9232e31e9e2de38e-NRT'), ('content-encoding', 'gzip'), ('alt-svc', 'h3=":443"; ma=86400')])
+2025-03-20 13:42:36,502 - openai._base_client - DEBUG - request_id: a5aa775f180822ff18ecdec06ba5727c
+2025-03-20 13:42:36,511 - ra_aid.ra_aid.__main__ - DEBUG - Environment validation successful
+2025-03-20 13:42:36,512 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,515 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,517 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "research_note" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,518 - ra_aid.version_check - DEBUG - Checking for newer version at https://docs.ra-aid.ai/version.json
+2025-03-20 13:42:36,520 - urllib3.connectionpool - DEBUG - Starting new HTTPS connection (1): docs.ra-aid.ai:443
+2025-03-20 13:42:36,818 - urllib3.connectionpool - DEBUG - https://docs.ra-aid.ai:443 "GET /version.json HTTP/1.1" 200 25
+2025-03-20 13:42:36,819 - ra_aid.version_check - DEBUG - Current version: 0.18.0, Latest version: 0.18.0
+2025-03-20 13:42:36,820 - ra_aid.version_check - DEBUG - Current version is up-to-date
+2025-03-20 13:42:36,823 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."start_time", "t1"."command_line", "t1"."program_version", "t1"."machine_info" FROM "session" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [4, 1, 0])
+2025-03-20 13:42:36,825 - peewee - DEBUG - ('INSERT INTO "human_input" ("created_at", "updated_at", "content", "source", "session_id") VALUES (?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 36, 824698), datetime.datetime(2025, 3, 20, 13, 42, 36, 824735), 'explain current repo to me ', 'cli', 4])
+2025-03-20 13:42:36,831 - ra_aid.ra_aid.database.repositories.human_input_repository - DEBUG - Created human input ID 3 from cli for session 4
+2025-03-20 13:42:36,832 - peewee - DEBUG - ('SELECT COUNT(1) FROM (SELECT 1 FROM "human_input" AS "t1") AS "_wrapped"', [])
+2025-03-20 13:42:36,832 - ra_aid.ra_aid.__main__ - DEBUG - Recorded CLI input: explain current repo to me 
+2025-03-20 13:42:36,834 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:36,836 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:36,838 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 36, 837334), datetime.datetime(2025, 3, 20, 13, 42, 36, 837392), 3, '', None, None, '{"stage": "research_stage", "display_title": "Research Stage"}', 'stage_transition', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:36,845 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 62 of type: stage_transition
+2025-03-20 13:42:36,846 - ra_aid.ra_aid.llm - DEBUG - Creating LLM client with provider=gemini, model=gemini-1.5-pro-latest, temperature=None, expert=False
+2025-03-20 13:42:36,847 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:36,848 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:36,849 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 36, 848891), datetime.datetime(2025, 3, 20, 13, 42, 36, 848924), 3, '', None, None, '{"message": "This model supports temperature argument but none was given. Using model default temperature: 0.7.", "display_title": "Information"}', 'info', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:36,856 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 63 of type: info
+2025-03-20 13:42:36,857 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,858 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,867 - httpcore.connection - DEBUG - close.started
+2025-03-20 13:42:36,868 - httpcore.connection - DEBUG - close.complete
+2025-03-20 13:42:36,888 - ra_aid.ra_aid.agents.research_agent - DEBUG - Starting research agent with thread_id=50718f0e-5806-42ae-bbd1-d095d5670e25
+2025-03-20 13:42:36,889 - ra_aid.ra_aid.agents.research_agent - DEBUG - Research configuration: expert=True, research_only=False, hil=False, web=False
+2025-03-20 13:42:36,889 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:36,891 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:36,891 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,893 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,903 - ra_aid.ra_aid.agents.research_agent - DEBUG - Reasoning assist enabled: False
+2025-03-20 13:42:36,904 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "research_note" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:36,904 - ra_aid.ra_aid.agent_utils - DEBUG - Creating agent with config values: provider='gemini', model='gemini-1.5-pro-latest'
+2025-03-20 13:42:36,905 - ra_aid.ra_aid.anthropic_token_limiter - DEBUG - Using litellm token limit for gemini-1.5-pro-latest: 1048576
+2025-03-20 13:42:36,905 - ra_aid.ra_aid.agent_utils - DEBUG - Using CiaynAgent agent instance based on model config.
+2025-03-20 13:42:36,905 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:36,906 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:36,906 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:36,907 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 36, 906794), datetime.datetime(2025, 3, 20, 13, 42, 36, 906809), 3, '', None, None, '{"project_status": "existing", "file_count": "13", "total_files": 13, "display_title": "Project Status"}', 'info', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:36,910 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 64 of type: info
+2025-03-20 13:42:36,910 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,910 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,910 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,910 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,911 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:36,912 - ra_aid.ra_aid.agents.research_agent - DEBUG - Research agent created successfully
+2025-03-20 13:42:36,912 - ra_aid.ra_aid.agent_utils - DEBUG - Running agent with prompt length: 27983
+2025-03-20 13:42:36,913 - ra_aid.ra_aid.agent_utils - DEBUG - Attempt 1/20
+2025-03-20 13:42:36,914 - ra_aid.ra_aid.agent_utils - DEBUG - Cost tracking is disabled, skipping callback handler
+2025-03-20 13:42:36,914 - ra_aid.ra_aid.agent_utils - DEBUG - Using stream_config for agent.stream(): {'recursion_limit': 100, 'max_test_cmd_retries': 3, 'max_tool_failures': 3, 'fallback_tool_model_limit': 5, 'retry_fallback_count': 3, 'test_cmd_timeout': 300, 'show_cost': False, 'track_cost': False, 'valid_providers': ['anthropic', 'openai', 'openrouter', 'openai-compatible', 'deepseek', 'gemini', 'ollama'], 'provider': 'gemini', 'model': 'gemini-1.5-pro-latest', 'num_ctx': 262144, 'expert_provider': 'openai', 'expert_model': 'o1-preview', 'expert_num_ctx': 262144, 'temperature': None, 'experimental_fallback_handler': False, 'web_research_enabled': False, 'show_thoughts': False, 'force_reasoning_assistance': False, 'disable_reasoning_assistance': False, 'configurable': {'thread_id': '0ae7a31b-e832-4673-8f81-5dda5de60451'}, 'research_only': False, 'cowboy_mode': False, 'aider_config': None, 'use_aider': False, 'limit_tokens': True, 'auto_test': False, 'test_cmd': None, 'planner_provider': 'gemini', 'planner_model': 'gemini-1.5-pro-latest', 'research_provider': 'gemini', 'research_model': 'gemini-1.5-pro-latest'}
+2025-03-20 13:42:40,947 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - AST structure for single call: Call(func=Name(id='emit_research_notes', ctx=Load()), args=[Constant(value='This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.')], keywords=[])
+2025-03-20 13:42:40,947 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args in single call: ["'This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.'"]
+2025-03-20 13:42:40,947 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args: ["'This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.'"]
+2025-03-20 13:42:40,947 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Tool call: emit_research_notes
+Current call fingerprint: ('emit_research_notes', "[('arg0', 'This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.')]")
+Last call fingerprint: None
+2025-03-20 13:42:40,949 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:40,950 - peewee - DEBUG - ('INSERT INTO "research_note" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 40, 949940), datetime.datetime(2025, 3, 20, 13, 42, 40, 949982), 'This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.', 3])
+2025-03-20 13:42:40,960 - ra_aid.ra_aid.database.repositories.research_note_repository - DEBUG - Created research note ID 4: This project is a Streamlit-based tool for analyzi...
+2025-03-20 13:42:40,961 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:40,963 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 40, 962553), datetime.datetime(2025, 3, 20, 13, 42, 40, 962599), 3, 'emit_research_notes', '{"notes": "This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`."}', None, '{"note_id": 4, "display_title": "Research Notes"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:40,970 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 65 for tool: emit_research_notes
+2025-03-20 13:42:40,972 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,972 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,972 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,972 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,972 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,972 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,973 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,974 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,974 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,974 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=2,level=0,tokens=3), 2, 3, False
+2025-03-20 13:42:40,979 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "research_note" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:40,980 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:40,980 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:42:42,662 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - AST structure for single call: Call(func=Name(id='request_implementation', ctx=Load()), args=[Constant(value='No changes requested, just explanation of the repo.')], keywords=[])
+2025-03-20 13:42:42,662 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args in single call: ["'No changes requested, just explanation of the repo.'"]
+2025-03-20 13:42:42,663 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args: ["'No changes requested, just explanation of the repo.'"]
+2025-03-20 13:42:42,663 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Tool call: request_implementation
+Current call fingerprint: ('request_implementation', "[('arg0', 'No changes requested, just explanation of the repo.')]")
+Last call fingerprint: ('emit_research_notes', "[('arg0', 'This project is a Streamlit-based tool for analyzing stocks using the Guppy Multiple Moving Average (GMMA) technique.  It supports A-shares, ETFs, and Hong Kong stocks.  The main scripts are `gmma_akshare.py`, `gmma_etf_akshare.py`, and `gmma_hk_akshare.py`.  Dependencies are managed in `requirements.txt` and include `streamlit`, `akshare`, `pandas`, `plotly`, and `numpy`.  `pyarrow` is an optional dependency.  Cached industry data is stored in `cache/industry_data_2025-03-04.json`.  A screenshot of the application interface is located in `images/Screenshot_2-3-2025_151929_gmmaautodecision.streamlit.app.jpeg`.')]")
+2025-03-20 13:42:42,663 - ra_aid.ra_aid.llm - DEBUG - Creating LLM client with provider=gemini, model=gemini-1.5-pro-latest, temperature=None, expert=False
+2025-03-20 13:42:42,664 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:42,665 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:42,667 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 42, 666452), datetime.datetime(2025, 3, 20, 13, 42, 42, 666492), 3, '', None, None, '{"message": "This model supports temperature argument but none was given. Using model default temperature: 0.7.", "display_title": "Information"}', 'info', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:42,673 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 66 of type: info
+2025-03-20 13:42:42,675 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,675 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,676 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,676 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,676 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:42,681 - ra_aid.ra_aid.agents.planning_agent - DEBUG - Starting planning agent with thread_id=fae6478c-e363-4118-a1d5-4d86e5557591
+2025-03-20 13:42:42,681 - ra_aid.ra_aid.agents.planning_agent - DEBUG - Planning configuration: expert=True, hil=False
+2025-03-20 13:42:42,705 - ra_aid.ra_aid.agents.planning_agent - DEBUG - Checking for reasoning_assist_default on openai/o1-preview
+2025-03-20 13:42:42,705 - ra_aid.ra_aid.agents.planning_agent - DEBUG - Reasoning assist enabled: False
+2025-03-20 13:42:42,706 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:42,707 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:42,709 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "research_note" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:42,711 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:42,712 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:42,713 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 42, 713054), datetime.datetime(2025, 3, 20, 13, 42, 42, 713091), 3, '', None, None, '{"stage": "planning_stage", "display_title": "Planning Stage"}', 'stage_transition', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:42,719 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 67 of type: stage_transition
+2025-03-20 13:42:42,719 - ra_aid.ra_aid.agent_utils - DEBUG - Creating agent with config values: provider='gemini', model='gemini-1.5-pro-latest'
+2025-03-20 13:42:42,719 - ra_aid.ra_aid.anthropic_token_limiter - DEBUG - Using litellm token limit for gemini-1.5-pro-latest: 1048576
+2025-03-20 13:42:42,720 - ra_aid.ra_aid.agent_utils - DEBUG - Using CiaynAgent agent instance based on model config.
+2025-03-20 13:42:42,721 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:42,722 - ra_aid.ra_aid.agents.planning_agent - DEBUG - Planning agent completed successfully
+2025-03-20 13:42:42,722 - ra_aid.ra_aid.agent_utils - DEBUG - Running agent with prompt length: 26937
+2025-03-20 13:42:42,722 - ra_aid.ra_aid.agent_utils - DEBUG - Attempt 1/20
+2025-03-20 13:42:42,723 - ra_aid.ra_aid.agent_utils - DEBUG - Cost tracking is disabled, skipping callback handler
+2025-03-20 13:42:42,723 - ra_aid.ra_aid.agent_utils - DEBUG - Using stream_config for agent.stream(): {'recursion_limit': 100, 'max_test_cmd_retries': 3, 'max_tool_failures': 3, 'fallback_tool_model_limit': 5, 'retry_fallback_count': 3, 'test_cmd_timeout': 300, 'show_cost': False, 'track_cost': False, 'valid_providers': ['anthropic', 'openai', 'openrouter', 'openai-compatible', 'deepseek', 'gemini', 'ollama'], 'provider': 'gemini', 'model': 'gemini-1.5-pro-latest', 'num_ctx': 262144, 'expert_provider': 'openai', 'expert_model': 'o1-preview', 'expert_num_ctx': 262144, 'temperature': None, 'experimental_fallback_handler': False, 'web_research_enabled': False, 'show_thoughts': False, 'force_reasoning_assistance': False, 'disable_reasoning_assistance': False, 'configurable': {'thread_id': 'b1cd49c9-848a-471b-b946-dd4abac845b4'}, 'research_only': False, 'cowboy_mode': False, 'aider_config': None, 'use_aider': False, 'limit_tokens': True, 'auto_test': False, 'test_cmd': None, 'planner_provider': 'gemini', 'planner_model': 'gemini-1.5-pro-latest', 'research_provider': 'gemini', 'research_model': 'gemini-1.5-pro-latest'}
+2025-03-20 13:42:45,581 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - AST structure for single call: Call(func=Name(id='emit_key_facts', ctx=Load()), args=[List(elts=[Constant(value='The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.'), Constant(value='It supports A-shares, ETFs, and Hong Kong stocks.'), Constant(value='The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.'), Constant(value='Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.'), Constant(value='Cached industry data is stored in cache/industry_data_2025-03-04.json.')], ctx=Load())], keywords=[])
+2025-03-20 13:42:45,581 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args in single call: ["['The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.', 'It supports A-shares, ETFs, and Hong Kong stocks.', 'The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.', 'Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.', 'Cached industry data is stored in cache/industry_data_2025-03-04.json.']"]
+2025-03-20 13:42:45,582 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args: ["['The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.', 'It supports A-shares, ETFs, and Hong Kong stocks.', 'The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.', 'Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.', 'Cached industry data is stored in cache/industry_data_2025-03-04.json.']"]
+2025-03-20 13:42:45,582 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Tool call: emit_key_facts
+Current call fingerprint: ('emit_key_facts', '[(\'arg0\', "[\'The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.\', \'It supports A-shares, ETFs, and Hong Kong stocks.\', \'The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.\', \'Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.\', \'Cached industry data is stored in cache/industry_data_2025-03-04.json.\']")]')
+Last call fingerprint: None
+2025-03-20 13:42:45,583 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:45,584 - peewee - DEBUG - ('INSERT INTO "key_fact" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 584021), datetime.datetime(2025, 3, 20, 13, 42, 45, 584106), 'The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.', 3])
+2025-03-20 13:42:45,591 - ra_aid.ra_aid.database.repositories.key_fact_repository - DEBUG - Created key fact ID 25: The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.
+2025-03-20 13:42:45,592 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:45,594 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 593463), datetime.datetime(2025, 3, 20, 13, 42, 45, 593504), 3, 'emit_key_facts', '{"facts": ["The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique."]}', None, '{"fact_id": 25, "fact": "The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.", "display_title": "Key Fact #25"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:45,600 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 68 for tool: emit_key_facts
+2025-03-20 13:42:45,602 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,602 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,602 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,602 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,602 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,603 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,603 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,603 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,603 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,603 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,605 - peewee - DEBUG - ('INSERT INTO "key_fact" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 605167), datetime.datetime(2025, 3, 20, 13, 42, 45, 605200), 'It supports A-shares, ETFs, and Hong Kong stocks.', 3])
+2025-03-20 13:42:45,610 - ra_aid.ra_aid.database.repositories.key_fact_repository - DEBUG - Created key fact ID 26: It supports A-shares, ETFs, and Hong Kong stocks.
+2025-03-20 13:42:45,611 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:45,613 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 612449), datetime.datetime(2025, 3, 20, 13, 42, 45, 612482), 3, 'emit_key_facts', '{"facts": ["It supports A-shares, ETFs, and Hong Kong stocks."]}', None, '{"fact_id": 26, "fact": "It supports A-shares, ETFs, and Hong Kong stocks.", "display_title": "Key Fact #26"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:45,616 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 69 for tool: emit_key_facts
+2025-03-20 13:42:45,617 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,617 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,618 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,620 - peewee - DEBUG - ('INSERT INTO "key_fact" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 619847), datetime.datetime(2025, 3, 20, 13, 42, 45, 619872), 'The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.', 3])
+2025-03-20 13:42:45,625 - ra_aid.ra_aid.database.repositories.key_fact_repository - DEBUG - Created key fact ID 27: The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.
+2025-03-20 13:42:45,626 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:45,626 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 626651), datetime.datetime(2025, 3, 20, 13, 42, 45, 626669), 3, 'emit_key_facts', '{"facts": ["The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py."]}', None, '{"fact_id": 27, "fact": "The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.", "display_title": "Key Fact #27"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:45,630 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 70 for tool: emit_key_facts
+2025-03-20 13:42:45,631 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,631 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,633 - peewee - DEBUG - ('INSERT INTO "key_fact" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 633172), datetime.datetime(2025, 3, 20, 13, 42, 45, 633199), 'Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.', 3])
+2025-03-20 13:42:45,638 - ra_aid.ra_aid.database.repositories.key_fact_repository - DEBUG - Created key fact ID 28: Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.
+2025-03-20 13:42:45,638 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:45,639 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 639297), datetime.datetime(2025, 3, 20, 13, 42, 45, 639333), 3, 'emit_key_facts', '{"facts": ["Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional."]}', None, '{"fact_id": 28, "fact": "Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.", "display_title": "Key Fact #28"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:45,642 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 71 for tool: emit_key_facts
+2025-03-20 13:42:45,643 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,643 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,644 - peewee - DEBUG - ('INSERT INTO "key_fact" ("created_at", "updated_at", "content", "human_input_id") VALUES (?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 644441), datetime.datetime(2025, 3, 20, 13, 42, 45, 644472), 'Cached industry data is stored in cache/industry_data_2025-03-04.json.', 3])
+2025-03-20 13:42:45,648 - ra_aid.ra_aid.database.repositories.key_fact_repository - DEBUG - Created key fact ID 29: Cached industry data is stored in cache/industry_data_2025-03-04.json.
+2025-03-20 13:42:45,649 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:45,650 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 45, 649841), datetime.datetime(2025, 3, 20, 13, 42, 45, 649859), 3, 'emit_key_facts', '{"facts": ["Cached industry data is stored in cache/industry_data_2025-03-04.json."]}', None, '{"fact_id": 29, "fact": "Cached industry data is stored in cache/industry_data_2025-03-04.json.", "display_title": "Key Fact #29"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:45,654 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 72 for tool: emit_key_facts
+2025-03-20 13:42:45,655 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,655 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:45,657 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:45,658 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:45,658 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:42:56,567 - ra_aid.ra_aid.llm - DEBUG - Creating LLM client with provider=gemini, model=gemini-1.5-pro-latest, temperature=None, expert=False
+2025-03-20 13:42:56,568 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:56,569 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:56,570 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 56, 570209), datetime.datetime(2025, 3, 20, 13, 42, 56, 570248), 3, '', None, None, '{"message": "This model supports temperature argument but none was given. Using model default temperature: 0.7.", "display_title": "Information"}', 'info', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:56,578 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 73 of type: info
+2025-03-20 13:42:56,580 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,580 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,581 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,581 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:42:56,587 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,588 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=1,level=0,tokens=0), 1, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,589 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=3,level=0,tokens=3), 3, 23, False
+2025-03-20 13:42:56,590 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,591 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,591 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,591 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,591 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,591 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=5,level=0,tokens=6), 5, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=7,level=0,tokens=9), 7, 23, False
+2025-03-20 13:42:56,592 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=7,level=0,tokens=9), 7, 23, False
+2025-03-20 13:42:56,593 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=7,level=0,tokens=9), 7, 23, False
+2025-03-20 13:42:56,593 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=7,level=0,tokens=9), 7, 23, False
+2025-03-20 13:42:56,593 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=7,level=0,tokens=9), 7, 23, False
+2025-03-20 13:42:56,593 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,593 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,594 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,595 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,595 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=7,level=2,tokens=11), 7, 23, False
+2025-03-20 13:42:56,595 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=9,level=1,tokens=15), 9, 23, True
+2025-03-20 13:42:56,595 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=9,level=1,tokens=15), 9, 23, True
+2025-03-20 13:42:56,595 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=9,level=1,tokens=15), 9, 23, True
+2025-03-20 13:42:56,595 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,596 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,597 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,597 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,597 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,598 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=9,level=2,tokens=16), 9, 23, False
+2025-03-20 13:42:56,598 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,598 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,598 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,599 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=9,level=2,tokens=16), 10, 23, True
+2025-03-20 13:42:56,599 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=10,level=2,tokens=19), 10, 23, False
+2025-03-20 13:42:56,599 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=10,level=2,tokens=19), 10, 23, False
+2025-03-20 13:42:56,599 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=10,level=2,tokens=19), 10, 23, False
+2025-03-20 13:42:56,599 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=10,level=2,tokens=19), 10, 23, False
+2025-03-20 13:42:56,599 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=10,level=2,tokens=19), 10, 23, False
+2025-03-20 13:42:56,599 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,600 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,601 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,601 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=10,level=4,tokens=21), 10, 23, False
+2025-03-20 13:42:56,601 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=10,level=4,tokens=21), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=11,level=3,tokens=25), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=11,level=3,tokens=25), 11, 23, True
+2025-03-20 13:42:56,601 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=11,level=3,tokens=25), 11, 23, True
+2025-03-20 13:42:56,602 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,602 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,602 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,602 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,602 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=11,level=4,tokens=26), 11, 23, False
+2025-03-20 13:42:56,602 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=11,level=4,tokens=26), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=12,level=3,tokens=30), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=12,level=3,tokens=30), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=12,level=3,tokens=30), 12, 23, True
+2025-03-20 13:42:56,603 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,603 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,603 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,603 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=12,level=4,tokens=31), 12, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=14,level=1,tokens=37), 14, 23, True
+2025-03-20 13:42:56,604 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=14,level=1,tokens=37), 14, 23, True
+2025-03-20 13:42:56,604 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=14,level=1,tokens=37), 14, 23, True
+2025-03-20 13:42:56,604 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,604 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=14,level=2,tokens=38), 14, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=16,level=1,tokens=42), 16, 23, True
+2025-03-20 13:42:56,605 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=16,level=1,tokens=42), 16, 23, True
+2025-03-20 13:42:56,605 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=16,level=1,tokens=42), 16, 23, True
+2025-03-20 13:42:56,605 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=16,level=2,tokens=43), 16, 23, False
+2025-03-20 13:42:56,605 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=18,level=1,tokens=47), 18, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=18,level=1,tokens=47), 18, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=18,level=1,tokens=47), 18, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=18,level=2,tokens=48), 18, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=20,level=1,tokens=52), 20, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=20,level=1,tokens=52), 20, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=20,level=1,tokens=52), 20, 23, True
+2025-03-20 13:42:56,606 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,606 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=20,level=0,tokens=53), 20, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,607 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=22,level=0,tokens=56), 22, 23, False
+2025-03-20 13:42:56,613 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:56,613 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:56,615 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 56, 614073), datetime.datetime(2025, 3, 20, 13, 42, 56, 614100), 3, '', None, None, '{"task": "\\n## Task: Document the project\'s functionality and usage\\n\\nThis task aims to improve the project\'s README.md file by providing a comprehensive description of the project\'s functionality, usage instructions, and examples for each of the three analysis scripts (gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py).\\n\\n**Sub-tasks:**\\n\\n1. **Update Project Description:**  Expand the project description in README.md to clearly explain the purpose of the project, the types of stocks it analyzes (A-shares, ETFs, Hong Kong stocks), and the core functionality it provides (GMMA calculation, visualization, single stock analysis, and automatic market scanning).\\n\\n2. **Detailed Usage Instructions:**\\n    - For each script (gmma_akshare.py, gmma_etf_akshare.py, gmma_hk_akshare.py), provide step-by-step instructions on how to run the script and use its features.\\n    - Include clear explanations of the input parameters, such as stock codes, analysis modes, and any available options (e.g., sell signal EMA for ETFs, backtesting period).\\n    - Use screenshots or animated GIFs to illustrate the usage of the Streamlit interface.\\n\\n3. **Illustrative Examples:**  Provide practical examples demonstrating the usage of each script.  For instance, show how to analyze a specific stock, how to perform a market scan with industry filters, and how to use the backtesting functionality in gmma_etf_akshare.py.  Include expected outputs or visualizations to help users understand the results.\\n\\n4. **Clarify Dependencies:**  Clearly list all project dependencies in the README.md file, specifying which are required and which are optional.  Explain how to install the dependencies using `pip`.  Include the command to install all dependencies.\\n\\n5. **Code Examples:**  Include brief code snippets in the README.md to demonstrate how to use the core functions of each script programmatically. This will help users who want to integrate the GMMA analysis into their own Python projects.\\n\\n**Testing:**\\n\\nManually review the updated README.md file to ensure that the information is accurate, complete, and easy to understand.  Run the example commands provided in the documentation to verify that they work as expected.\\n", "display_title": "Task"}', 'task_display', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:56,622 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 74 of type: task_display
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Starting implementation agent with thread_id=98de2b09-2553-4615-8a49-ce6000c59dc6
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Implementation configuration: expert=True, web=False
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Task details: base_task=, current_task=
+## Task: Document the project's functionality and usage
+
+This task aims to improve the project's README.md file by providing a comprehensive description of the project's functionality, usage instructions, and examples for each of the three analysis scripts (gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py).
+
+**Sub-tasks:**
+
+1. **Update Project Description:**  Expand the project description in README.md to clearly explain the purpose of the project, the types of stocks it analyzes (A-shares, ETFs, Hong Kong stocks), and the core functionality it provides (GMMA calculation, visualization, single stock analysis, and automatic market scanning).
+
+2. **Detailed Usage Instructions:**
+    - For each script (gmma_akshare.py, gmma_etf_akshare.py, gmma_hk_akshare.py), provide step-by-step instructions on how to run the script and use its features.
+    - Include clear explanations of the input parameters, such as stock codes, analysis modes, and any available options (e.g., sell signal EMA for ETFs, backtesting period).
+    - Use screenshots or animated GIFs to illustrate the usage of the Streamlit interface.
+
+3. **Illustrative Examples:**  Provide practical examples demonstrating the usage of each script.  For instance, show how to analyze a specific stock, how to perform a market scan with industry filters, and how to use the backtesting functionality in gmma_etf_akshare.py.  Include expected outputs or visualizations to help users understand the results.
+
+4. **Clarify Dependencies:**  Clearly list all project dependencies in the README.md file, specifying which are required and which are optional.  Explain how to install the dependencies using `pip`.  Include the command to install all dependencies.
+
+5. **Code Examples:**  Include brief code snippets in the README.md to demonstrate how to use the core functions of each script programmatically. This will help users who want to integrate the GMMA analysis into their own Python projects.
+
+**Testing:**
+
+Manually review the updated README.md file to ensure that the information is accurate, complete, and easy to understand.  Run the example commands provided in the documentation to verify that they work as expected.
+
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Related files: []
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.agent_utils - DEBUG - Creating agent with config values: provider='gemini', model='gemini-1.5-pro-latest'
+2025-03-20 13:42:56,623 - ra_aid.ra_aid.anthropic_token_limiter - DEBUG - Using litellm token limit for gemini-1.5-pro-latest: 1048576
+2025-03-20 13:42:56,624 - ra_aid.ra_aid.agent_utils - DEBUG - Using CiaynAgent agent instance based on model config.
+2025-03-20 13:42:56,625 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:56,626 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:56,628 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "research_note" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:56,644 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Checking for reasoning_assist_default on openai/o1-preview
+2025-03-20 13:42:56,645 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Reasoning assist enabled: False
+2025-03-20 13:42:56,646 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:42:56,647 - ra_aid.ra_aid.agents.implementation_agent - DEBUG - Implementation agent completed successfully
+2025-03-20 13:42:56,648 - ra_aid.ra_aid.agent_utils - DEBUG - Running agent with prompt length: 29364
+2025-03-20 13:42:56,648 - ra_aid.ra_aid.agent_utils - DEBUG - Attempt 1/20
+2025-03-20 13:42:56,649 - ra_aid.ra_aid.agent_utils - DEBUG - Cost tracking is disabled, skipping callback handler
+2025-03-20 13:42:56,649 - ra_aid.ra_aid.agent_utils - DEBUG - Using stream_config for agent.stream(): {'recursion_limit': 100, 'max_test_cmd_retries': 3, 'max_tool_failures': 3, 'fallback_tool_model_limit': 5, 'retry_fallback_count': 3, 'test_cmd_timeout': 300, 'show_cost': False, 'track_cost': False, 'valid_providers': ['anthropic', 'openai', 'openrouter', 'openai-compatible', 'deepseek', 'gemini', 'ollama'], 'provider': 'gemini', 'model': 'gemini-1.5-pro-latest', 'num_ctx': 262144, 'expert_provider': 'openai', 'expert_model': 'o1-preview', 'expert_num_ctx': 262144, 'temperature': None, 'experimental_fallback_handler': False, 'web_research_enabled': False, 'show_thoughts': False, 'force_reasoning_assistance': False, 'disable_reasoning_assistance': False, 'configurable': {'thread_id': 'f53903e0-0be2-485e-81e8-702569534f13'}, 'research_only': False, 'cowboy_mode': False, 'aider_config': None, 'use_aider': False, 'limit_tokens': True, 'auto_test': False, 'test_cmd': None, 'planner_provider': 'gemini', 'planner_model': 'gemini-1.5-pro-latest', 'research_provider': 'gemini', 'research_model': 'gemini-1.5-pro-latest'}
+2025-03-20 13:42:58,481 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - AST structure for single call: Call(func=Name(id='read_file_tool', ctx=Load()), args=[], keywords=[keyword(arg='filepath', value=Constant(value='README.md'))])
+2025-03-20 13:42:58,481 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Processing parameter: filepath = 'README.md'
+2025-03-20 13:42:58,481 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Tool call: read_file_tool
+Current call fingerprint: ('read_file_tool', "[('filepath', 'README.md')]")
+Last call fingerprint: None
+2025-03-20 13:42:58,482 - root - DEBUG - Starting to read file: README.md
+2025-03-20 13:42:58,482 - root - DEBUG - Read chunk: 1344 bytes, running total: 1344 bytes
+2025-03-20 13:42:58,482 - root - DEBUG - File read complete: 1344 bytes in 0.00s
+2025-03-20 13:42:58,482 - root - DEBUG - Pre-truncation stats: 1344 bytes, 83 lines
+2025-03-20 13:42:58,483 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:42:58,485 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:42:58,486 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 42, 58, 486127), datetime.datetime(2025, 3, 20, 13, 42, 58, 486171), 3, 'read_file_tool', '{"filepath": "README.md", "encoding": "utf-8"}', None, '{"filepath": "README.md", "display_title": "File Read", "line_count": 83, "total_bytes": 1344, "elapsed_time": 0.0005691051483154297}', 'tool_execution', None, None, None, False, None, None, None, 4])
+2025-03-20 13:42:58,492 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 75 for tool: read_file_tool
+2025-03-20 13:42:58,495 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:42:58,495 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:18,874 - root - DEBUG - Starting to write file: README.md
+2025-03-20 13:43:18,876 - root - DEBUG - Writing 3113 bytes to README.md
+2025-03-20 13:43:18,877 - root - DEBUG - File write complete: 5058 bytes in 0.00s
+2025-03-20 13:43:18,881 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:43:18,883 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:43:18,884 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 43, 18, 884017), datetime.datetime(2025, 3, 20, 13, 43, 18, 884057), 3, 'emit_related_files', '{"files": ["README.md"]}', None, '{"added_files": ["README.md"], "added_file_ids": [1], "display_title": "Related Files Noted"}', 'memory_operation', None, None, None, False, None, None, None, 4])
+2025-03-20 13:43:18,892 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 76 for tool: emit_related_files
+2025-03-20 13:43:18,893 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,893 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,894 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,894 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,894 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 2, False
+2025-03-20 13:43:18,895 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 1, 2, True
+2025-03-20 13:43:18,895 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=1,level=0,tokens=3), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=1,level=0,tokens=3), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=1,level=0,tokens=3), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=1,level=0,tokens=3), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=1,level=0,tokens=3), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,896 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,897 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=1,level=2,tokens=5), 1, 2, False
+2025-03-20 13:43:18,900 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:43:18,900 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:20,689 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:43:20,691 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:43:20,693 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 43, 20, 692425), datetime.datetime(2025, 3, 20, 13, 43, 20, 692469), 3, 'task_completed', '{"message": "Completed documenting the project\'s functionality and usage in README.md."}', None, '{"completion_message": "Completed documenting the project\'s functionality and usage in README.md.", "display_title": "Task Completed"}', 'task_completion', None, None, None, False, None, None, None, 4])
+2025-03-20 13:43:20,700 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 77 for tool: task_completed
+2025-03-20 13:43:20,702 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,702 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,702 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,702 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,702 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,702 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,703 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,703 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,703 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,703 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:20,705 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:43:20,705 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:20,706 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:43:20,711 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:43:20,712 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:43:20,713 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:23,757 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - AST structure for single call: Call(func=Name(id='plan_implementation_completed', ctx=Load()), args=[Constant(value="Finished documenting the project's functionality and usage.")], keywords=[])
+2025-03-20 13:43:23,757 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args in single call: ['"Finished documenting the project\'s functionality and usage."']
+2025-03-20 13:43:23,758 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Found positional args: ['"Finished documenting the project\'s functionality and usage."']
+2025-03-20 13:43:23,758 - ra_aid.ra_aid.agent_backends.ciayn_agent - DEBUG - Tool call: plan_implementation_completed
+Current call fingerprint: ('plan_implementation_completed', '[(\'arg0\', "Finished documenting the project\'s functionality and usage.")]')
+Last call fingerprint: ('emit_key_facts', '[(\'arg0\', "[\'The project analyzes stocks using the Guppy Multiple Moving Average (GMMA) technique.\', \'It supports A-shares, ETFs, and Hong Kong stocks.\', \'The main scripts are gmma_akshare.py, gmma_etf_akshare.py, and gmma_hk_akshare.py.\', \'Dependencies include streamlit, akshare, pandas, plotly, and numpy. Pyarrow is optional.\', \'Cached industry data is stored in cache/industry_data_2025-03-04.json.\']")]')
+2025-03-20 13:43:23,759 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" ORDER BY "t1"."created_at" DESC LIMIT ?', [1])
+2025-03-20 13:43:23,761 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."source", "t1"."session_id" FROM "human_input" AS "t1" WHERE ("t1"."id" = ?) LIMIT ? OFFSET ?', [3, 1, 0])
+2025-03-20 13:43:23,762 - peewee - DEBUG - ('INSERT INTO "trajectory" ("created_at", "updated_at", "human_input_id", "tool_name", "tool_parameters", "tool_result", "step_data", "record_type", "current_cost", "input_tokens", "output_tokens", "is_error", "error_message", "error_type", "error_details", "session_id") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [datetime.datetime(2025, 3, 20, 13, 43, 23, 761851), datetime.datetime(2025, 3, 20, 13, 43, 23, 761910), 3, 'plan_implementation_completed', '{"message": "Finished documenting the project\'s functionality and usage."}', None, '{"completion_message": "Finished documenting the project\'s functionality and usage.", "display_title": "Plan Executed"}', 'plan_completion', None, None, None, False, None, None, None, 4])
+2025-03-20 13:43:23,770 - ra_aid.ra_aid.database.repositories.trajectory_repository - DEBUG - Created trajectory record ID 78 for tool: plan_implementation_completed
+2025-03-20 13:43:23,771 - markdown_it.rules_block.code - DEBUG - entering code: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.fence - DEBUG - entering fence: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.blockquote - DEBUG - entering blockquote: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.hr - DEBUG - entering hr: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.list - DEBUG - entering list: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.reference - DEBUG - entering reference: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.html_block - DEBUG - entering html_block: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.heading - DEBUG - entering heading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,772 - markdown_it.rules_block.lheading - DEBUG - entering lheading: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,773 - markdown_it.rules_block.paragraph - DEBUG - entering paragraph: StateBlock(line=0,level=0,tokens=0), 0, 1, False
+2025-03-20 13:43:23,774 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:43:23,775 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:23,776 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."content", "t1"."human_input_id", "t1"."session_id" FROM "key_fact" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:43:23,782 - peewee - DEBUG - ('SELECT "t1"."id", "t1"."created_at", "t1"."updated_at", "t1"."filepath", "t1"."line_number", "t1"."snippet", "t1"."description", "t1"."human_input_id", "t1"."session_id" FROM "key_snippet" AS "t1" ORDER BY "t1"."id"', [])
+2025-03-20 13:43:23,783 - ra_aid.ra_aid.fallback_handler - DEBUG - Fallback Handler: Fallback models selected: gpt-4o-2024-11-20, gpt-4o-2024-11-20, gpt-4-turbo-2024-04-09, o1-2024-12-17, gpt-4o-mini-2024-07-18
+2025-03-20 13:43:23,784 - ra_aid.ra_aid.agent_utils - DEBUG - Agent output: {}
+2025-03-20 13:43:23,792 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
