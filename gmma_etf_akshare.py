@@ -38,9 +38,9 @@ sell_signal_ema = st.sidebar.selectbox(
 )
 
 # Add backtest operations units input to sidebar
-# st.sidebar.title("回测设置")
-# backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
-#                                           help="每次买入或卖出信号触发时的操作单位数")
+st.sidebar.title("回测设置")
+backtest_units = st.sidebar.number_input("回测操作单位数", min_value=1, max_value=10000, value=1000, 
+                                         help="每次买入或卖出信号触发时的操作单位数")
 
 # Display current settings
 st.sidebar.markdown(f"**当前卖出信号设置**: 当价格低于买入信号时的价格，或价格低于**{sell_signal_ema}**时产生卖出信号")
@@ -470,7 +470,7 @@ if analysis_mode == "基金全扫描":
                                         return f'color: {color}'
                                     
                                     # First apply styling to the numeric data
-                                    styled_df = trades_df.style.applymap(
+                                    styled_df = trades_df.style.map(
                                         color_gain_loss, 
                                         subset=['gain_loss', 'gain_loss_pct']
                                     )
@@ -809,7 +809,7 @@ elif analysis_mode == "指定基金分析":
                                     return f'color: {color}'
                                 
                                 # First apply styling to the numeric data
-                                styled_df = trades_df.style.applymap(
+                                styled_df = trades_df.style.map(
                                     color_gain_loss, 
                                     subset=['gain_loss', 'gain_loss_pct']
                                 )
