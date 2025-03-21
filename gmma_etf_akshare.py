@@ -53,14 +53,20 @@ backtest_strategy = st.sidebar.radio(
 # Add historical data period selection
 history_period = st.sidebar.selectbox(
     "历史数据周期",
-    options=["6年", "3年", "2年", "1年", "6个月", "3个月"],
-    index=2,  # Default to 2年
+    options=["25年", "20年", "15年", "10年", "8年", "6年", "4年", "3年", "2年", "1年", "6个月", "3个月"],
+    index=7,  # Default to 3年
     help="选择用于分析和回测的历史数据范围"
 )
 
 # Convert selected period to days
 period_days = {
+    "25年": 365 * 25,
+    "20年": 365 * 20,
+    "15年": 365 * 15,
+    "10年": 365 * 10,
+    "8年": 365 * 8,
     "6年": 365 * 6,
+    "4年": 365 * 4,
     "3年": 365 * 3,
     "2年": 365 * 2,
     "1年": 365,
@@ -466,7 +472,7 @@ if analysis_mode == "基金全扫描":
                                     y=stock_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
-                                    line=dict(color="blue", width=1),
+                                    line=dict(color="skyblue", width=1),
                                     legendgroup="short_term",
                                     showlegend=(j == 0)
                                 ))
@@ -478,7 +484,7 @@ if analysis_mode == "基金全扫描":
                                     y=stock_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
-                                    line=dict(color="red", width=1),
+                                    line=dict(color="lightcoral", width=1),
                                     legendgroup="long_term",
                                     showlegend=(j == 0)
                                 ))
@@ -573,7 +579,7 @@ if analysis_mode == "基金全扫描":
                                 legend_title="图例",
                                 hovermode="x unified",
                                 template="plotly_white",
-                                height=500
+                                height=800
                             )
                             
                             # Display the plot
@@ -923,7 +929,8 @@ elif analysis_mode == "指定基金分析":
                         yaxis_title="价格",
                         legend_title="图例",
                         hovermode="x unified",
-                        template="plotly_white"
+                        template="plotly_white",
+                        height=800
                     )
                     
                     # Display plot
