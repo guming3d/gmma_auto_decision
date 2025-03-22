@@ -28,6 +28,15 @@ st.markdown("""
 st.sidebar.title("分析模式")
 analysis_mode = st.sidebar.radio("选择模式", ["指定基金分析", "基金全扫描"], index=0)
 
+# Add buying signal policy selection
+st.sidebar.title("买入信号策略")
+buying_signal_policy = st.sidebar.radio(
+    "买入信号策略选择",
+    options=["标准策略", "EMA趋势策略"],
+    index=0,
+    help="标准策略: 短期EMA穿越长期EMA; EMA趋势策略: 所有短期和长期EMA都呈上升趋势，且短期EMA均值仍低于长期EMA均值"
+)
+
 # Add short-term EMA selection for sell signal
 st.sidebar.title("信号设置")
 sell_signal_ema = st.sidebar.selectbox(
@@ -77,6 +86,7 @@ history_days = period_days[history_period]
 
 # Display current settings
 st.sidebar.markdown(f"**当前卖出信号设置**: 价格低于**{sell_signal_ema}**时产生卖出信号")
+st.sidebar.markdown(f"**当前买入信号策略**: **{buying_signal_policy}**")
 
 # Function to check if a stock has a recent crossover
 def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None):
@@ -108,6 +118,14 @@ def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None)
         stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
         stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
         
+        # Calculate EMA trends (up or down compared to previous day)
+        for period in short_terms + long_terms:
+            stock_data[f"EMA{period}_trend"] = stock_data[f"EMA{period}"].diff() > 0
+        
+        # Calculate if all short-term and long-term EMAs are trending up
+        stock_data['all_short_ema_up'] = stock_data[[f'EMA{period}_trend' for period in short_terms]].all(axis=1)
+        stock_data['all_long_ema_up'] = stock_data[[f'EMA{period}_trend' for period in long_terms]].all(axis=1)
+        
         # Detect crossovers (short-term crossing above/below long-term)
         stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
         stock_data['buy_signal'] = False
@@ -121,14 +139,28 @@ def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None)
         # Extract the number from ema_for_sell if provided
         ema_number = int(ema_for_sell.replace("EMA", "")) if ema_for_sell else 8
         
-        # Find both buy and sell signals
+        # Find both buy and sell signals based on the selected policy
         for i in range(1, len(stock_data)):
-            # Buy signal: short-term crosses above long-term
-            if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i] and not in_position:
-                stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-                last_buy_price = stock_data['close'].iloc[i]
-                last_buy_index = i
-                in_position = True
+            # Buy signal based on selected policy
+            if not in_position:
+                if buying_signal_policy == "标准策略":
+                    # Standard policy: short-term crosses above long-term
+                    if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
+                        stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+                        last_buy_price = stock_data['close'].iloc[i]
+                        last_buy_index = i
+                        in_position = True
+                else:  # EMA趋势策略
+                    # New policy: all short-term and long-term EMAs trending up
+                    # AND the average of short-term EMAs is below the average of long-term EMAs
+                    # This helps avoid generating too many signals (noise)
+                    if (stock_data['all_short_ema_up'].iloc[i] and 
+                        stock_data['all_long_ema_up'].iloc[i] and
+                        stock_data['avg_short_ema'].iloc[i] < stock_data['avg_long_ema'].iloc[i]):
+                        stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+                        last_buy_price = stock_data['close'].iloc[i]
+                        last_buy_index = i
+                        in_position = True
             
             # Sell signal - use the selected EMA from the sidebar
             elif in_position and (
@@ -180,7 +212,7 @@ def perform_back_testing(stock_data, units=100):
             max_units = cash // price
             if max_units > 0:
                 cost = price * max_units
-                cash -= cost
+                cash -= cost  # Deduct cost from cash
                 position += max_units
                 
                 # Store buy price and units for later gain/loss calculation
@@ -193,7 +225,7 @@ def perform_back_testing(stock_data, units=100):
                     'price': price,
                     'units': max_units,
                     'cost': cost,
-                    'cash': cash,
+                    'cash': cash,  # This is cash AFTER the purchase
                     'position_value': position * price,
                     'total_value': cash + (position * price)
                 })
@@ -202,7 +234,7 @@ def perform_back_testing(stock_data, units=100):
         elif row['sell_signal'] and position > 0:
             # Sell all units
             proceeds = price * position
-            cash += proceeds
+            cash += proceeds  # Add proceeds to cash
             
             # Calculate gain/loss information
             gain_loss = 0
@@ -219,7 +251,7 @@ def perform_back_testing(stock_data, units=100):
                 'proceeds': proceeds,
                 'gain_loss': gain_loss,
                 'gain_loss_pct': gain_loss_pct,
-                'cash': cash,
+                'cash': cash,  # This is cash AFTER the sale
                 'position_value': 0,
                 'total_value': cash
             })
@@ -315,7 +347,7 @@ def perform_back_testing_percentage(stock_data):
                     
                     if units_to_buy > 0:
                         cost = price * units_to_buy
-                        cash -= cost
+                        cash -= cost  # Deduct cost from cash
                         position += units_to_buy
                         
                         # Track this purchase in position history
@@ -329,7 +361,7 @@ def perform_back_testing_percentage(stock_data):
                             'price': price,
                             'units': units_to_buy,
                             'cost': cost,
-                            'cash': cash,
+                            'cash': cash,  # This is cash AFTER the purchase
                             'position_value': position * price,
                             'total_value': cash + (position * price)
                         })
@@ -343,7 +375,7 @@ def perform_back_testing_percentage(stock_data):
             units_to_sell = position // 2
             if units_to_sell > 0:
                 proceeds = price * units_to_sell
-                cash += proceeds
+                cash += proceeds  # Add proceeds to cash
                 
                 # Calculate weighted average buy price of current position
                 if position_history:
@@ -374,7 +406,7 @@ def perform_back_testing_percentage(stock_data):
                     'proceeds': proceeds,
                     'gain_loss': gain_loss,
                     'gain_loss_pct': gain_loss_pct,
-                    'cash': cash,
+                    'cash': cash,  # This is cash AFTER the sale
                     'position_value': position * price,
                     'total_value': cash + (position * price)
                 })
@@ -480,220 +512,302 @@ if analysis_mode == "基金全扫描":
                                 legendgroup="short_term",
                                 showlegend=(j == 0)
                             ))
+                            
+                            # Add EMA trend arrows if they're available in the data
+                            if f"EMA{period}_trend" in display_data.columns:
+                                latest_date = display_data.index[-1]
+                                is_up_trend = display_data.loc[latest_date, f"EMA{period}_trend"]
+                                arrow_symbol = "↑" if is_up_trend else "↓"
+                                arrow_color = "green" if is_up_trend else "red"
+                                
+                                fig.add_annotation(
+                                    x=latest_date,
+                                    y=display_data.loc[latest_date, f"EMA{period}"],
+                                    text=f"{arrow_symbol}",
+                                    showarrow=False,
+                                    font=dict(size=16, color=arrow_color),
+                                    xshift=10,  # Shift to the right
+                                )
                         
-                            # Add long-term EMAs (red)
-                            for j, period in enumerate([30, 35, 40, 45, 50, 60]):
-                                fig.add_trace(go.Scatter(
-                                    x=display_data.index,
-                                    y=display_data[f"EMA{period}"],
-                                    mode="lines",
-                                    name=f"EMA{period}",
-                                    line=dict(color="lightcoral", width=1),
-                                    legendgroup="long_term",
-                                    showlegend=(j == 0)
-                                ))
-                        
-                            # Add average EMAs
+                        # Add long-term EMAs (red)
+                        for j, period in enumerate([30, 35, 40, 45, 50, 60]):
                             fig.add_trace(go.Scatter(
                                 x=display_data.index,
-                                y=display_data['avg_short_ema'],
+                                y=display_data[f"EMA{period}"],
                                 mode="lines",
-                                name="Avg Short-term EMAs",
-                                line=dict(color="blue", width=2, dash='dot'),
+                                name=f"EMA{period}",
+                                line=dict(color="lightcoral", width=1),
+                                legendgroup="long_term",
+                                showlegend=(j == 0)
                             ))
                             
-                            fig.add_trace(go.Scatter(
-                                x=display_data.index,
-                                y=display_data['avg_long_ema'],
-                                mode="lines",
-                                name="Avg Long-term EMAs",
-                                line=dict(color="red", width=2, dash='dot'),
-                            ))
-                            
-                            # Mark buy and sell signals on the chart
-                            buy_dates = display_data[display_data['buy_signal']].index
-                            sell_dates = display_data[display_data['sell_signal']].index
-                            
-                            # Add buy signals
-                            for date in buy_dates:
-                                price_at_signal = display_data.loc[date, 'close']
-                                # Add buy annotation - arrow pointing upward from below
+                            # Add EMA trend arrows if they're available in the data
+                            if f"EMA{period}_trend" in display_data.columns:
+                                latest_date = display_data.index[-1]
+                                is_up_trend = display_data.loc[latest_date, f"EMA{period}_trend"]
+                                arrow_symbol = "↑" if is_up_trend else "↓"
+                                arrow_color = "green" if is_up_trend else "red"
+                                
                                 fig.add_annotation(
-                                    x=date,
-                                    y=price_at_signal * 1.08,  # Move text higher
-                                    text=f"买入信号 {date.strftime('%Y-%m-%d')}",
-                                    showarrow=True,
-                                    arrowhead=1,
-                                    arrowcolor="green",
-                                    arrowsize=1,
-                                    arrowwidth=2,
-                                    font=dict(color="green", size=12),
-                                    ax=0,  # No horizontal shift
-                                    ay=-40  # Move arrow start point down
+                                    x=latest_date,
+                                    y=display_data.loc[latest_date, f"EMA{period}"],
+                                    text=f"{arrow_symbol}",
+                                    showarrow=False,
+                                    font=dict(size=16, color=arrow_color),
+                                    xshift=10,  # Shift to the right
                                 )
-                            
-                            # Add sell signals
-                            for date in sell_dates:
-                                price_at_signal = display_data.loc[date, 'close']
-                                # Add sell annotation - arrow pointing downward from above
-                                fig.add_annotation(
-                                    x=date,
-                                    y=price_at_signal * 0.92,  # Move text lower
-                                    text=f"卖出信号 {date.strftime('%Y-%m-%d')}",
-                                    showarrow=True,
-                                    arrowhead=1,
-                                    arrowcolor="red",
-                                    arrowsize=1,
-                                    arrowwidth=2,
-                                    font=dict(color="red", size=12),
-                                    ax=0,  # No horizontal shift
-                                    ay=40  # Move arrow start point up
-                                )
-                            
-                            # Count and display the number of signals
-                            buy_count = len(buy_dates)
-                            sell_count = len(sell_dates)
-                            last_buy = buy_dates[-1].strftime('%Y-%m-%d') if buy_count > 0 else "None"
-                            last_sell = sell_dates[-1].strftime('%Y-%m-%d') if sell_count > 0 else "None"
-                            
-                            signal_info = (
-                                f"**买入信号**: 共 {buy_count} 个, 最近信号日期: {last_buy}<br>"
-                                f"**卖出信号**: 共 {sell_count} 个, 最近信号日期: {last_sell}"
-                            )
-                            
+                        
+                        # Add average EMAs
+                        fig.add_trace(go.Scatter(
+                            x=display_data.index,
+                            y=display_data['avg_short_ema'],
+                            mode="lines",
+                            name="Avg Short-term EMAs",
+                            line=dict(color="blue", width=2, dash='dot'),
+                        ))
+                        
+                        fig.add_trace(go.Scatter(
+                            x=display_data.index,
+                            y=display_data['avg_long_ema'],
+                            mode="lines",
+                            name="Avg Long-term EMAs",
+                            line=dict(color="red", width=2, dash='dot'),
+                        ))
+                        
+                        # Mark buy and sell signals on the chart
+                        buy_dates = display_data[display_data['buy_signal']].index
+                        sell_dates = display_data[display_data['sell_signal']].index
+                        
+                        # Add buy signals
+                        for date in buy_dates:
+                            price_at_signal = display_data.loc[date, 'close']
+                            # Add buy annotation - arrow pointing upward from below
                             fig.add_annotation(
-                                x=0.02,
-                                y=0.98,
-                                xref="paper",
-                                yref="paper",
-                                text=signal_info,
-                                showarrow=False,
-                                font=dict(size=14),
-                                bgcolor="white",
-                                bordercolor="black",
-                                borderwidth=1,
-                                align="left"
+                                x=date,
+                                y=price_at_signal * 1.08,  # Move text higher
+                                text=f"买入信号 {date.strftime('%Y-%m-%d')}",
+                                showarrow=True,
+                                arrowhead=1,
+                                arrowcolor="green",
+                                arrowsize=1,
+                                arrowwidth=2,
+                                font=dict(color="green", size=12),
+                                ax=0,  # No horizontal shift
+                                ay=-40  # Move arrow start point down
                             )
-                            
-                            # Layout
-                            fig.update_layout(
-                                title=f"{ticker} - {name} GMMA 图表",
-                                xaxis_title="日期",
-                                yaxis_title="价格",
-                                legend_title="图例",
-                                hovermode="x unified",
-                                template="plotly_white",
-                                height=800
+                        
+                        # Add sell signals
+                        for date in sell_dates:
+                            price_at_signal = display_data.loc[date, 'close']
+                            # Add sell annotation - arrow pointing downward from above
+                            fig.add_annotation(
+                                x=date,
+                                y=price_at_signal * 0.92,  # Move text lower
+                                text=f"卖出信号 {date.strftime('%Y-%m-%d')}",
+                                showarrow=True,
+                                arrowhead=1,
+                                arrowcolor="red",
+                                arrowsize=1,
+                                arrowwidth=2,
+                                font=dict(color="red", size=12),
+                                ax=0,  # No horizontal shift
+                                ay=40  # Move arrow start point up
                             )
+                        
+                        # Count and display the number of signals
+                        buy_count = len(buy_dates)
+                        sell_count = len(sell_dates)
+                        last_buy = buy_dates[-1].strftime('%Y-%m-%d') if buy_count > 0 else "None"
+                        last_sell = sell_dates[-1].strftime('%Y-%m-%d') if sell_count > 0 else "None"
+                        
+                        signal_info = (
+                            f"**买入信号**: 共 {buy_count} 个, 最近信号日期: {last_buy}<br>"
+                            f"**卖出信号**: 共 {sell_count} 个, 最近信号日期: {last_sell}"
+                        )
+                        
+                        fig.add_annotation(
+                            x=0.02,
+                            y=0.98,
+                            xref="paper",
+                            yref="paper",
+                            text=signal_info,
+                            showarrow=False,
+                            font=dict(size=14),
+                            bgcolor="white",
+                            bordercolor="black",
+                            borderwidth=1,
+                            align="left"
+                        )
+                        
+                        # Add EMA trend information
+                        if 'all_short_ema_up' in display_data.columns and 'all_long_ema_up' in display_data.columns:
+                            latest_date = display_data.index[-1]
+                            all_short_up = display_data.loc[latest_date, 'all_short_ema_up']
+                            all_long_up = display_data.loc[latest_date, 'all_long_ema_up']
+                            short_below_long = display_data.loc[latest_date, 'avg_short_ema'] < display_data.loc[latest_date, 'avg_long_ema']
                             
-                            # Display the plot
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                            # Display both buy and sell signal dates in tables
-                            if len(buy_dates) > 0 or len(sell_dates) > 0:
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.subheader("买入信号日期")
-                                    if len(buy_dates) > 0:
-                                        buy_signal_dates = [date.strftime('%Y-%m-%d') for date in buy_dates]
-                                        buy_df = pd.DataFrame(buy_signal_dates, columns=["日期"])
-                                        st.table(buy_df)
-                                    else:
-                                        st.write("无买入信号")
-                                
-                                with col2:
-                                    st.subheader("卖出信号日期")
-                                    if len(sell_dates) > 0:
-                                        sell_signal_dates = [date.strftime('%Y-%m-%d') for date in sell_dates]
-                                        sell_df = pd.DataFrame(sell_signal_dates, columns=["日期"])
-                                        st.table(sell_df)
-                                    else:
-                                        st.write("无卖出信号")
-                            
-                            # Display notification about which EMA is used for sell signals
-                            st.info(f"当前卖出信号条件: 价格低于**{sell_signal_ema}**")
-                            
-                            # Add back testing section
-                            st.subheader("回归测试")
-                            
-                            # Select the appropriate back testing function based on user selection
-                            if backtest_strategy == "常规策略":
-                                st.markdown(f"""该回归测试模拟了严格按照买入和卖出信号操作的结果，每次操作购买或卖出{backtest_units}单位，以验证信号的有效性。""")
-                                backtest_results = perform_back_testing(stock_data, units=backtest_units)
-                            else:
-                                st.markdown("""该回归测试模拟了按比例投资的策略：
-                                1. 初始资金10万，至少保留30%现金
-                                2. 每次买入信号使用当前总资产的10%购买股票
-                                3. 当现金不足10%时，等待卖出信号卖出50%持仓
-                                """)
-                                backtest_results = perform_back_testing_percentage(stock_data)
-                            
-                            # Before displaying backtest results:
-                            # Filter backtest results to only include trades from the display period
-                            filtered_trades = [trade for trade in backtest_results['trades'] 
-                                              if pd.to_datetime(trade['date']) >= display_start_date_dt]
-
-                            # Update the displayed trades
-                            backtest_results['trades'] = filtered_trades
-                            
-                            # Display results
+                            st.subheader("EMA趋势指标 (最新交易日)")
                             col1, col2, col3 = st.columns(3)
                             
                             with col1:
-                                st.metric(
-                                    label="信号策略最终价值", 
-                                    value=f"¥{backtest_results['final_value']:,.2f}",
-                                    delta=f"{backtest_results['signal_return_pct']:.2f}%"
-                                )
-                                
-                            with col2:
-                                st.metric(
-                                    label="买入并持有策略", 
-                                    value=f"¥{backtest_results['buy_hold_value']:,.2f}",
-                                    delta=f"{backtest_results['buy_hold_return_pct']:.2f}%"
-                                )
-                                
-                            with col3:
-                                delta = backtest_results['signal_return_pct'] - backtest_results['buy_hold_return_pct']
-                                st.metric(
-                                    label="信号vs买入持有", 
-                                    value=f"{delta:.2f}%",
-                                    delta=delta
-                                )
-                            
-                            # Display trades table
-                            if backtest_results['trades']:
-                                st.subheader("交易记录")
-                                trades_df = pd.DataFrame(backtest_results['trades'])
-                                
-                                # Format gain/loss columns
-                                if 'gain_loss' in trades_df.columns:
-                                    # Function to color-code gain/loss values
-                                    def color_gain_loss(val):
-                                        if pd.isna(val):
-                                            return ''
-                                        color = 'green' if val > 0 else 'red' if val < 0 else 'black'
-                                        return f'color: {color}'
-                                    
-                                    # First apply styling to the numeric data
-                                    styled_df = trades_df.style.map(
-                                        color_gain_loss, 
-                                        subset=['gain_loss', 'gain_loss_pct']
-                                    )
-                                    
-                                    # Then format the display values (this doesn't affect the styling)
-                                    styled_df = styled_df.format({
-                                        'gain_loss': lambda x: f"¥{x:,.2f}" if not pd.isna(x) else "",
-                                        'gain_loss_pct': lambda x: f"{x:.2f}%" if not pd.isna(x) else ""
-                                    })
-                                    
-                                    st.dataframe(styled_df, use_container_width=True)
+                                if all_short_up:
+                                    st.success("✅ 所有短期EMA趋势向上")
                                 else:
-                                    st.dataframe(trades_df, use_container_width=True)
+                                    st.error("❌ 并非所有短期EMA趋势向上")
+                                    
+                            with col2:
+                                if all_long_up:
+                                    st.success("✅ 所有长期EMA趋势向上")
+                                else:
+                                    st.error("❌ 并非所有长期EMA趋势向上")
+                            
+                            with col3:
+                                if short_below_long:
+                                    st.success("✅ 短期EMA均值低于长期EMA均值")
+                                else:
+                                    st.error("❌ 短期EMA均值高于长期EMA均值")
+                            
+                            if all_short_up and all_long_up and short_below_long:
+                                st.success("🔔 EMA趋势策略买入信号: 条件全部满足")
                             else:
-                                st.warning("回测期间没有产生交易。")
-                    
+                                st.warning("⚠️ EMA趋势策略: 不满足买入条件")
+                        
+                        # Layout
+                        fig.update_layout(
+                            title=f"{ticker} - {name} GMMA 图表",
+                            xaxis_title="日期",
+                            yaxis_title="价格",
+                            legend_title="图例",
+                            hovermode="x unified",
+                            template="plotly_white",
+                            height=800
+                        )
+                        
+                        # Display the plot
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Display both buy and sell signal dates in tables
+                        if len(buy_dates) > 0 or len(sell_dates) > 0:
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.subheader("买入信号日期")
+                                if len(buy_dates) > 0:
+                                    buy_signal_dates = [date.strftime('%Y-%m-%d') for date in buy_dates]
+                                    buy_df = pd.DataFrame(buy_signal_dates, columns=["日期"])
+                                    st.table(buy_df)
+                                else:
+                                    st.write("无买入信号")
+                            
+                            with col2:
+                                st.subheader("卖出信号日期")
+                                if len(sell_dates) > 0:
+                                    sell_signal_dates = [date.strftime('%Y-%m-%d') for date in sell_dates]
+                                    sell_df = pd.DataFrame(sell_signal_dates, columns=["日期"])
+                                    st.table(sell_df)
+                                else:
+                                    st.write("无卖出信号")
+                        
+                        # Display notification about which EMA is used for sell signals
+                        st.info(f"当前卖出信号条件: 价格低于**{sell_signal_ema}**")
+                        
+                        # Add back testing section
+                        st.subheader("回归测试")
+                        
+                        # Select the appropriate back testing function based on user selection
+                        if backtest_strategy == "常规策略":
+                            st.markdown(f"""该回归测试模拟了严格按照买入和卖出信号操作的结果，每次操作购买或卖出{backtest_units}单位，以验证信号的有效性。""")
+                            backtest_results = perform_back_testing(stock_data, units=backtest_units)
+                        else:
+                            st.markdown("""该回归测试模拟了按比例投资的策略：
+                            1. 初始资金10万，至少保留30%现金
+                            2. 每次买入信号使用当前总资产的10%购买股票
+                            3. 当现金不足10%时，等待卖出信号卖出50%持仓
+                            """)
+                            backtest_results = perform_back_testing_percentage(stock_data)
+                        
+                        # Before displaying backtest results:
+                        # Filter backtest results to only include trades from the display period
+                        filtered_trades = [trade for trade in backtest_results['trades'] 
+                                          if pd.to_datetime(trade['date']) >= display_start_date_dt]
+
+                        # Update the displayed trades
+                        backtest_results['trades'] = filtered_trades
+                        
+                        # Display results
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric(
+                                label="信号策略最终价值", 
+                                value=f"¥{backtest_results['final_value']:,.2f}",
+                                delta=f"{backtest_results['signal_return_pct']:.2f}%"
+                            )
+                            
+                        with col2:
+                            st.metric(
+                                label="买入并持有策略", 
+                                value=f"¥{backtest_results['buy_hold_value']:,.2f}",
+                                delta=f"{backtest_results['buy_hold_return_pct']:.2f}%"
+                            )
+                            
+                        with col3:
+                            delta = backtest_results['signal_return_pct'] - backtest_results['buy_hold_return_pct']
+                            st.metric(
+                                label="信号vs买入持有", 
+                                value=f"{delta:.2f}%",
+                                delta=delta
+                            )
+                        
+                        # Display trades table
+                        if backtest_results['trades']:
+                            st.subheader("交易记录")
+                            trades_df = pd.DataFrame(backtest_results['trades'])
+                            
+                            # Format gain/loss columns
+                            if 'gain_loss' in trades_df.columns:
+                                # Function to color-code gain/loss values
+                                def color_gain_loss(val):
+                                    if pd.isna(val):
+                                        return ''
+                                    color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+                                    return f'color: {color}'
+                                
+                                # First apply styling to the numeric data
+                                styled_df = trades_df.style.map(
+                                    color_gain_loss, 
+                                    subset=['gain_loss', 'gain_loss_pct']
+                                )
+                                
+                                # Then format the display values (this doesn't affect the styling)
+                                styled_df = styled_df.format({
+                                    'price': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'units': lambda x: f"{x:.2f}" if not pd.isna(x) else "",
+                                    'cost': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'cash': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'position_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'total_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'proceeds': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'gain_loss': lambda x: f"¥{x:,.2f}" if not pd.isna(x) else "",
+                                    'gain_loss_pct': lambda x: f"{x:.2f}%" if not pd.isna(x) else ""
+                                })
+                                
+                                st.dataframe(styled_df, use_container_width=True)
+                            else:
+                                # Still format numeric columns even without gain/loss
+                                styled_df = trades_df.style.format({
+                                    'price': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'units': lambda x: f"{x:.2f}" if not pd.isna(x) else "",
+                                    'cost': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'cash': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'position_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'total_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'proceeds': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                })
+                                st.dataframe(styled_df, use_container_width=True)
+                        else:
+                            st.warning("回测期间没有产生交易。")
+                
                     # Check if we have found enough stocks
                     if len(crossover_stocks) >= hk_max_stocks:
                         break
@@ -792,6 +906,14 @@ elif analysis_mode == "指定基金分析":
                     stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
                     stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
                     
+                    # Calculate EMA trends (up or down compared to previous day)
+                    for period in short_terms + long_terms:
+                        stock_data[f"EMA{period}_trend"] = stock_data[f"EMA{period}"].diff() > 0
+                    
+                    # Calculate if all short-term and long-term EMAs are trending up
+                    stock_data['all_short_ema_up'] = stock_data[[f'EMA{period}_trend' for period in short_terms]].all(axis=1)
+                    stock_data['all_long_ema_up'] = stock_data[[f'EMA{period}_trend' for period in long_terms]].all(axis=1)
+                    
                     # Detect crossovers using full dataset
                     stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
                     stock_data['buy_signal'] = False
@@ -805,13 +927,28 @@ elif analysis_mode == "指定基金分析":
                     # Extract the number from the selected EMA
                     ema_number = int(sell_signal_ema.replace("EMA", ""))
                     
-                    # Find signals using full dataset
+                    # Find signals using full dataset based on selected policy
                     for i in range(1, len(stock_data)):
-                        if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i] and not in_position:
-                            stock_data.loc[stock_data.index[i], 'buy_signal'] = True
-                            last_buy_price = stock_data['close'].iloc[i]
-                            last_buy_index = i
-                            in_position = True
+                        # Buy signal based on selected policy
+                        if not in_position:
+                            if buying_signal_policy == "标准策略":
+                                # Standard policy: short-term crosses above long-term
+                                if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
+                                    stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+                                    last_buy_price = stock_data['close'].iloc[i]
+                                    last_buy_index = i
+                                    in_position = True
+                            else:  # EMA趋势策略
+                                # New policy: all short-term and long-term EMAs trending up
+                                # AND the average of short-term EMAs is below the average of long-term EMAs
+                                # This helps avoid generating too many signals (noise)
+                                if (stock_data['all_short_ema_up'].iloc[i] and 
+                                    stock_data['all_long_ema_up'].iloc[i] and
+                                    stock_data['avg_short_ema'].iloc[i] < stock_data['avg_long_ema'].iloc[i]):
+                                    stock_data.loc[stock_data.index[i], 'buy_signal'] = True
+                                    last_buy_price = stock_data['close'].iloc[i]
+                                    last_buy_index = i
+                                    in_position = True
                         
                         # Sell signal - only if we're in a position and price is lower than the selected EMA
                         elif in_position and (
@@ -851,6 +988,22 @@ elif analysis_mode == "指定基金分析":
                                 legendgroup="short_term",
                                 showlegend=(i == 0)
                             ))
+                            
+                            # Add EMA trend arrows if they're available in the data
+                            if f"EMA{period}_trend" in display_data.columns:
+                                latest_date = display_data.index[-1]
+                                is_up_trend = display_data.loc[latest_date, f"EMA{period}_trend"]
+                                arrow_symbol = "↑" if is_up_trend else "↓"
+                                arrow_color = "green" if is_up_trend else "red"
+                                
+                                fig.add_annotation(
+                                    x=latest_date,
+                                    y=display_data.loc[latest_date, f"EMA{period}"],
+                                    text=f"{arrow_symbol}",
+                                    showarrow=False,
+                                    font=dict(size=16, color=arrow_color),
+                                    xshift=10,  # Shift to the right
+                                )
                     
                     if show_long_term:
                         for i, period in enumerate([30, 35, 40, 45, 50, 60]):
@@ -863,6 +1016,22 @@ elif analysis_mode == "指定基金分析":
                                 legendgroup="long_term",
                                 showlegend=(i == 0)
                             ))
+                            
+                            # Add EMA trend arrows if they're available in the data
+                            if f"EMA{period}_trend" in display_data.columns:
+                                latest_date = display_data.index[-1]
+                                is_up_trend = display_data.loc[latest_date, f"EMA{period}_trend"]
+                                arrow_symbol = "↑" if is_up_trend else "↓"
+                                arrow_color = "green" if is_up_trend else "red"
+                                
+                                fig.add_annotation(
+                                    x=latest_date,
+                                    y=display_data.loc[latest_date, f"EMA{period}"],
+                                    text=f"{arrow_symbol}",
+                                    showarrow=False,
+                                    font=dict(size=16, color=arrow_color),
+                                    xshift=10,  # Shift to the right
+                                )
                     
                     # Add average EMAs
                     fig.add_trace(go.Scatter(
@@ -943,6 +1112,39 @@ elif analysis_mode == "指定基金分析":
                         borderwidth=1,
                         align="left"
                     )
+                    
+                    # Add EMA trend information
+                    if 'all_short_ema_up' in display_data.columns and 'all_long_ema_up' in display_data.columns:
+                        latest_date = display_data.index[-1]
+                        all_short_up = display_data.loc[latest_date, 'all_short_ema_up']
+                        all_long_up = display_data.loc[latest_date, 'all_long_ema_up']
+                        short_below_long = display_data.loc[latest_date, 'avg_short_ema'] < display_data.loc[latest_date, 'avg_long_ema']
+                        
+                        st.subheader("EMA趋势指标 (最新交易日)")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            if all_short_up:
+                                st.success("✅ 所有短期EMA趋势向上")
+                            else:
+                                st.error("❌ 并非所有短期EMA趋势向上")
+                                
+                        with col2:
+                            if all_long_up:
+                                st.success("✅ 所有长期EMA趋势向上")
+                            else:
+                                st.error("❌ 并非所有长期EMA趋势向上")
+                        
+                        with col3:
+                            if short_below_long:
+                                st.success("✅ 短期EMA均值低于长期EMA均值")
+                            else:
+                                st.error("❌ 短期EMA均值高于长期EMA均值")
+                        
+                        if all_short_up and all_long_up and short_below_long:
+                            st.success("🔔 EMA趋势策略买入信号: 条件全部满足")
+                        else:
+                            st.warning("⚠️ EMA趋势策略: 不满足买入条件")
                     
                     # Layout
                     fig.update_layout(
@@ -1050,13 +1252,30 @@ elif analysis_mode == "指定基金分析":
                                 
                                 # Then format the display values (this doesn't affect the styling)
                                 styled_df = styled_df.format({
+                                    'price': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'units': lambda x: f"{x:.2f}" if not pd.isna(x) else "",
+                                    'cost': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'cash': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'position_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'total_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'proceeds': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
                                     'gain_loss': lambda x: f"¥{x:,.2f}" if not pd.isna(x) else "",
                                     'gain_loss_pct': lambda x: f"{x:.2f}%" if not pd.isna(x) else ""
                                 })
                                 
                                 st.dataframe(styled_df, use_container_width=True)
                             else:
-                                st.dataframe(trades_df, use_container_width=True)
+                                # Still format numeric columns even without gain/loss
+                                styled_df = trades_df.style.format({
+                                    'price': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'units': lambda x: f"{x:.2f}" if not pd.isna(x) else "",
+                                    'cost': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'cash': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'position_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'total_value': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                    'proceeds': lambda x: f"{x:.6f}" if not pd.isna(x) else "",
+                                })
+                                st.dataframe(styled_df, use_container_width=True)
                         else:
                             st.warning("回测期间没有产生交易。")
                 except Exception as e:
