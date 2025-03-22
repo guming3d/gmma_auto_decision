@@ -76,14 +76,14 @@ period_days = {
 history_days = period_days[history_period]
 
 # Display current settings
-st.sidebar.markdown(f"**当前卖出信号设置**: 当价格低于买入信号时的价格，或价格低于**{sell_signal_ema}**时产生卖出信号")
+st.sidebar.markdown(f"**当前卖出信号设置**: 价格低于**{sell_signal_ema}**时产生卖出信号")
 
 # Function to check if a stock has a recent crossover
 def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None):
     try:
-        # Calculate date range for the past 2 months (enough data to calculate EMAs)
+        # Calculate date range with extra 60 days for EMA calculation
         end_date = datetime.today().strftime('%Y%m%d')
-        start_date = (datetime.today() - timedelta(days=120)).strftime('%Y%m%d')
+        start_date = (datetime.today() - timedelta(days=120 + 60)).strftime('%Y%m%d')  # 120 days + 60 days warmup
         
         # Fetch stock data using akshare based on market
         stock_data = ak.fund_etf_hist_em(symbol=ticker, period="daily", 
@@ -118,6 +118,9 @@ def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None)
         last_buy_price = None
         last_buy_index = -1
         
+        # Extract the number from ema_for_sell if provided
+        ema_number = int(ema_for_sell.replace("EMA", "")) if ema_for_sell else 8
+        
         # Find both buy and sell signals
         for i in range(1, len(stock_data)):
             # Buy signal: short-term crosses above long-term
@@ -127,12 +130,10 @@ def has_recent_crossover(ticker, days_to_check=3, market="A", ema_for_sell=None)
                 last_buy_index = i
                 in_position = True
             
-            # Sell signal - only if we're in a position and one of these conditions is met:
-            # 1. Close price is lower than previous close price for the most recent "buying_signal"
-            # 2. Close price is lower than EMA8
+            # Sell signal - use the selected EMA from the sidebar
             elif in_position and (
-                (last_buy_price is not None and i > last_buy_index and stock_data['close'].iloc[i] < last_buy_price) or 
-                (stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i])
+                (last_buy_price is not None) and 
+                (stock_data['close'].iloc[i] < stock_data[f'EMA{ema_number}'].iloc[i])
             ):
                 stock_data.loc[stock_data.index[i], 'sell_signal'] = True
                 in_position = False  # Reset position status after selling
@@ -437,9 +438,10 @@ if analysis_mode == "基金全扫描":
                     ticker = row['基金代码']
                     name = row['基金名称']
                     
-                    # Calculate date range using the selected history period instead of fixed 920 days
+                    # Calculate date range using the selected history period with extra 60 days
                     end_date = datetime.today().strftime('%Y%m%d')
-                    start_date = (datetime.today() - timedelta(days=history_days)).strftime('%Y%m%d')
+                    display_start_date = (datetime.today() - timedelta(days=history_days)).strftime('%Y%m%d')
+                    fetch_start_date = (datetime.today() - timedelta(days=history_days + 60)).strftime('%Y%m%d')
                     
                     # Check for crossover using our modified function with HK market parameter and selected EMA
                     has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="A", ema_for_sell=sell_signal_ema)
@@ -448,71 +450,73 @@ if analysis_mode == "基金全扫描":
                         # Add to crossover list
                         crossover_stocks.append((ticker, name, stock_data))
                         
-                        # Create expander for this stock
-                        with st.expander(f"{ticker} - {name}", expanded=True):
-                            # Create GMMA chart
-                            fig = go.Figure()
-                            
-                            # Add candlestick chart
-                            fig.add_trace(go.Candlestick(
-                                x=stock_data.index,
-                                open=stock_data["open"],
-                                high=stock_data[["open", "close"]].max(axis=1),
-                                low=stock_data[["open", "close"]].min(axis=1),
-                                close=stock_data["close"],
-                                increasing_line_color='red',
-                                decreasing_line_color='green',
-                                name="Price"
+                        # Filter stock_data for display
+                        display_start_date_dt = pd.to_datetime(display_start_date)
+                        display_data = stock_data[stock_data.index >= display_start_date_dt]
+                        
+                        # Create GMMA chart using display_data
+                        fig = go.Figure()
+                        
+                        # Add candlestick chart with display_data
+                        fig.add_trace(go.Candlestick(
+                            x=display_data.index,
+                            open=display_data["open"],
+                            high=display_data[["open", "close"]].max(axis=1),
+                            low=display_data[["open", "close"]].min(axis=1),
+                            close=display_data["close"],
+                            increasing_line_color='red',
+                            decreasing_line_color='green',
+                            name="Price"
+                        ))
+                        
+                        # Add short-term EMAs (blue)
+                        for j, period in enumerate([3, 5, 8, 10, 12, 15]):
+                            fig.add_trace(go.Scatter(
+                                x=display_data.index,
+                                y=display_data[f"EMA{period}"],
+                                mode="lines",
+                                name=f"EMA{period}",
+                                line=dict(color="skyblue", width=1),
+                                legendgroup="short_term",
+                                showlegend=(j == 0)
                             ))
-                            
-                            # Add short-term EMAs (blue)
-                            for j, period in enumerate([3, 5, 8, 10, 12, 15]):
-                                fig.add_trace(go.Scatter(
-                                    x=stock_data.index,
-                                    y=stock_data[f"EMA{period}"],
-                                    mode="lines",
-                                    name=f"EMA{period}",
-                                    line=dict(color="skyblue", width=1),
-                                    legendgroup="short_term",
-                                    showlegend=(j == 0)
-                                ))
-                            
+                        
                             # Add long-term EMAs (red)
                             for j, period in enumerate([30, 35, 40, 45, 50, 60]):
                                 fig.add_trace(go.Scatter(
-                                    x=stock_data.index,
-                                    y=stock_data[f"EMA{period}"],
+                                    x=display_data.index,
+                                    y=display_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
                                     line=dict(color="lightcoral", width=1),
                                     legendgroup="long_term",
                                     showlegend=(j == 0)
                                 ))
-                            
+                        
                             # Add average EMAs
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data['avg_short_ema'],
+                                x=display_data.index,
+                                y=display_data['avg_short_ema'],
                                 mode="lines",
                                 name="Avg Short-term EMAs",
                                 line=dict(color="blue", width=2, dash='dot'),
                             ))
                             
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data['avg_long_ema'],
+                                x=display_data.index,
+                                y=display_data['avg_long_ema'],
                                 mode="lines",
                                 name="Avg Long-term EMAs",
                                 line=dict(color="red", width=2, dash='dot'),
                             ))
                             
                             # Mark buy and sell signals on the chart
-                            buy_dates = stock_data[stock_data['buy_signal']].index
-                            sell_dates = stock_data[stock_data['sell_signal']].index
+                            buy_dates = display_data[display_data['buy_signal']].index
+                            sell_dates = display_data[display_data['sell_signal']].index
                             
                             # Add buy signals
                             for date in buy_dates:
-                                price_at_signal = stock_data.loc[date, 'close']
+                                price_at_signal = display_data.loc[date, 'close']
                                 # Add buy annotation - arrow pointing upward from below
                                 fig.add_annotation(
                                     x=date,
@@ -530,7 +534,7 @@ if analysis_mode == "基金全扫描":
                             
                             # Add sell signals
                             for date in sell_dates:
-                                price_at_signal = stock_data.loc[date, 'close']
+                                price_at_signal = display_data.loc[date, 'close']
                                 # Add sell annotation - arrow pointing downward from above
                                 fig.add_annotation(
                                     x=date,
@@ -608,7 +612,7 @@ if analysis_mode == "基金全扫描":
                                         st.write("无卖出信号")
                             
                             # Display notification about which EMA is used for sell signals
-                            st.info(f"当前卖出信号条件: 1) 价格低于买入信号时的价格，或 2) 价格低于**{sell_signal_ema}**")
+                            st.info(f"当前卖出信号条件: 价格低于**{sell_signal_ema}**")
                             
                             # Add back testing section
                             st.subheader("回归测试")
@@ -624,6 +628,14 @@ if analysis_mode == "基金全扫描":
                                 3. 当现金不足10%时，等待卖出信号卖出50%持仓
                                 """)
                                 backtest_results = perform_back_testing_percentage(stock_data)
+                            
+                            # Before displaying backtest results:
+                            # Filter backtest results to only include trades from the display period
+                            filtered_trades = [trade for trade in backtest_results['trades'] 
+                                              if pd.to_datetime(trade['date']) >= display_start_date_dt]
+
+                            # Update the displayed trades
+                            backtest_results['trades'] = filtered_trades
                             
                             # Display results
                             col1, col2, col3 = st.columns(3)
@@ -728,7 +740,7 @@ elif analysis_mode == "指定基金分析":
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
     
     # Update the sell signal info message
-    st.info(f"当前卖出信号条件: 1) 价格低于买入信号时的价格，或 2) 价格低于EMA8")
+    st.info(f"当前卖出信号条件: 价格低于**{sell_signal_ema}**")
     
     # Process the input funds
     fund_list = [fund.strip() for fund in funds_input.split(",") if fund.strip()]
@@ -748,9 +760,15 @@ elif analysis_mode == "指定基金分析":
                     # Format ticker
                     ticker = ticker.split('.')[0].zfill(6)
                     
-                    # Fetch stock data using akshare
+                    # Calculate date range using the selected history period
+                    # Add 60 days to the history days for EMA calculation warmup
+                    end_date = datetime.today().strftime('%Y%m%d')
+                    display_start_date = (datetime.today() - timedelta(days=history_days)).strftime('%Y%m%d')
+                    fetch_start_date = (datetime.today() - timedelta(days=history_days + 60)).strftime('%Y%m%d')
+                    
+                    # Fetch stock data using akshare with extended date range
                     stock_data = ak.fund_etf_hist_em(symbol=ticker, period="daily", 
-                                                  start_date=start_date, end_date=end_date, adjust="")
+                                                 start_date=fetch_start_date, end_date=end_date, adjust="")
                     
                     if stock_data.empty:
                         st.error(f"未找到基金代码 {ticker} 的数据。请检查代码并重试。")
@@ -762,7 +780,7 @@ elif analysis_mode == "指定基金分析":
                     stock_data.set_index('date', inplace=True)
                     stock_data.sort_index(inplace=True)
                     
-                    # Calculate EMAs
+                    # Calculate EMAs using full dataset
                     for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
                         stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
                     
@@ -774,7 +792,7 @@ elif analysis_mode == "指定基金分析":
                     stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
                     stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
                     
-                    # Detect crossovers
+                    # Detect crossovers using full dataset
                     stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
                     stock_data['buy_signal'] = False
                     stock_data['sell_signal'] = False
@@ -784,7 +802,10 @@ elif analysis_mode == "指定基金分析":
                     last_buy_price = None
                     last_buy_index = -1
                     
-                    # Find signals
+                    # Extract the number from the selected EMA
+                    ema_number = int(sell_signal_ema.replace("EMA", ""))
+                    
+                    # Find signals using full dataset
                     for i in range(1, len(stock_data)):
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i] and not in_position:
                             stock_data.loc[stock_data.index[i], 'buy_signal'] = True
@@ -792,37 +813,38 @@ elif analysis_mode == "指定基金分析":
                             last_buy_index = i
                             in_position = True
                         
-                        # Sell signal - only if we're in a position and one of these conditions is met:
-                        # 1. Close price is lower than previous close price for the most recent "buying_signal"
-                        # 2. Close price is lower than EMA8
+                        # Sell signal - only if we're in a position and price is lower than the selected EMA
                         elif in_position and (
-                            (last_buy_price is not None and i > last_buy_index and stock_data['close'].iloc[i] < last_buy_price) or 
-                            (stock_data['close'].iloc[i] < stock_data['EMA8'].iloc[i])
+                            stock_data['close'].iloc[i] < stock_data[f'EMA{ema_number}'].iloc[i]
                         ):
                             stock_data.loc[stock_data.index[i], 'sell_signal'] = True
                             in_position = False  # Reset position status after selling
                     
-                    # Create figure
+                    # Now filter to only show the user-selected date range
+                    display_start_date_dt = pd.to_datetime(display_start_date)
+                    display_data = stock_data[stock_data.index >= display_start_date_dt]
+                    
+                    # Create figure using the filtered data for display
                     fig = go.Figure()
                     
                     # Add candlestick
                     fig.add_trace(go.Candlestick(
-                        x=stock_data.index,
-                        open=stock_data["open"],
-                        high=stock_data[["open", "close"]].max(axis=1),
-                        low=stock_data[["open", "close"]].min(axis=1),
-                        close=stock_data["close"],
+                        x=display_data.index,
+                        open=display_data["open"],
+                        high=display_data[["open", "close"]].max(axis=1),
+                        low=display_data[["open", "close"]].min(axis=1),
+                        close=display_data["close"],
                         increasing_line_color='red',
                         decreasing_line_color='green',
                         name="Price"
                     ))
                     
-                    # Add EMAs
+                    # Add EMAs using filtered data
                     if show_short_term:
                         for i, period in enumerate([3, 5, 8, 10, 12, 15]):
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data[f"EMA{period}"],
+                                x=display_data.index,
+                                y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
                                 line=dict(color="blue", width=1),
@@ -833,8 +855,8 @@ elif analysis_mode == "指定基金分析":
                     if show_long_term:
                         for i, period in enumerate([30, 35, 40, 45, 50, 60]):
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data[f"EMA{period}"],
+                                x=display_data.index,
+                                y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
                                 line=dict(color="red", width=1),
@@ -844,28 +866,28 @@ elif analysis_mode == "指定基金分析":
                     
                     # Add average EMAs
                     fig.add_trace(go.Scatter(
-                        x=stock_data.index,
-                        y=stock_data['avg_short_ema'],
+                        x=display_data.index,
+                        y=display_data['avg_short_ema'],
                         mode="lines",
                         name="Avg Short-term EMAs",
                         line=dict(color="blue", width=2, dash='dot'),
                     ))
                     
                     fig.add_trace(go.Scatter(
-                        x=stock_data.index,
-                        y=stock_data['avg_long_ema'],
+                        x=display_data.index,
+                        y=display_data['avg_long_ema'],
                         mode="lines",
                         name="Avg Long-term EMAs",
                         line=dict(color="red", width=2, dash='dot'),
                     ))
                     
                     # Add signals
-                    buy_dates = stock_data[stock_data['buy_signal']].index
-                    sell_dates = stock_data[stock_data['sell_signal']].index
+                    buy_dates = display_data[display_data['buy_signal']].index
+                    sell_dates = display_data[display_data['sell_signal']].index
                     
                     # Add buy signals
                     for date in buy_dates:
-                        price_at_signal = stock_data.loc[date, 'close']
+                        price_at_signal = display_data.loc[date, 'close']
                         fig.add_annotation(
                             x=date,
                             y=price_at_signal * 1.08,
@@ -882,7 +904,7 @@ elif analysis_mode == "指定基金分析":
                     
                     # Add sell signals
                     for date in sell_dates:
-                        price_at_signal = stock_data.loc[date, 'close']
+                        price_at_signal = display_data.loc[date, 'close']
                         fig.add_annotation(
                             x=date,
                             y=price_at_signal * 0.92,
@@ -972,6 +994,14 @@ elif analysis_mode == "指定基金分析":
                             3. 当现金不足10%时，等待卖出信号卖出50%持仓
                             """)
                             backtest_results = perform_back_testing_percentage(stock_data)
+                        
+                        # Before displaying backtest results:
+                        # Filter backtest results to only include trades from the display period
+                        filtered_trades = [trade for trade in backtest_results['trades'] 
+                                          if pd.to_datetime(trade['date']) >= display_start_date_dt]
+
+                        # Update the displayed trades
+                        backtest_results['trades'] = filtered_trades
                         
                         # Display results
                         col1, col2, col3 = st.columns(3)
