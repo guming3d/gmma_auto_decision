@@ -847,7 +847,7 @@ elif analysis_mode == "指定基金分析":
                                 y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
-                                line=dict(color="blue", width=1),
+                                line=dict(color="skyblue", width=1),
                                 legendgroup="short_term",
                                 showlegend=(i == 0)
                             ))
@@ -859,7 +859,7 @@ elif analysis_mode == "指定基金分析":
                                 y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
-                                line=dict(color="red", width=1),
+                                line=dict(color="lightcoral", width=1),
                                 legendgroup="long_term",
                                 showlegend=(i == 0)
                             ))
@@ -870,7 +870,7 @@ elif analysis_mode == "指定基金分析":
                         y=display_data['avg_short_ema'],
                         mode="lines",
                         name="Avg Short-term EMAs",
-                        line=dict(color="blue", width=2, dash='dot'),
+                        line=dict(color="darkblue", width=2, dash='dot'),
                     ))
                     
                     fig.add_trace(go.Scatter(
@@ -878,7 +878,7 @@ elif analysis_mode == "指定基金分析":
                         y=display_data['avg_long_ema'],
                         mode="lines",
                         name="Avg Long-term EMAs",
-                        line=dict(color="red", width=2, dash='dot'),
+                        line=dict(color="darkred", width=2, dash='dot'),
                     ))
                     
                     # Add signals
