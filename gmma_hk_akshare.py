@@ -83,14 +83,14 @@ analysis_mode = st.sidebar.radio("选择模式", ["港股扫描","单一股票�
 
 if analysis_mode == "港股扫描":
     st.sidebar.title("港股扫描设置")
-    hk_days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 4)
+    hk_days_to_check = st.sidebar.slider("检查最近几天内的信号", 1, 7, 1)
     hk_max_stocks = st.sidebar.slider("最多显示股票数量", 1, 200, 200)
     
     if st.sidebar.button("开始扫描港股"):
         with st.spinner("正在扫描港股买入信号，这可能需要一些时间..."):
             try:
                 # Get all HK stocks using akshare
-                hk_stocks_df = ak.stock_hk_main_board_spot_em()
+                hk_stocks_df = ak.stock_hk_famous_spot_em()
                 # hk_stocks_df = ak.stock_hk_spot()
                 # print the length of the dataframe
                 print(len(hk_stocks_df))
@@ -142,7 +142,7 @@ if analysis_mode == "港股扫描":
                                     y=stock_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
-                                    line=dict(color="blue", width=1),
+                                    line=dict(color="skyblue", width=1),
                                     legendgroup="short_term",
                                     showlegend=(j == 0)
                                 ))
@@ -154,7 +154,7 @@ if analysis_mode == "港股扫描":
                                     y=stock_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
-                                    line=dict(color="red", width=1),
+                                    line=dict(color="lightcoral", width=1),
                                     legendgroup="long_term",
                                     showlegend=(j == 0)
                                 ))
@@ -200,7 +200,7 @@ if analysis_mode == "港股扫描":
                                 legend_title="图例",
                                 hovermode="x unified",
                                 template="plotly_white",
-                                height=500
+                                height=800
                             )
                             
                             # Display the plot
@@ -413,7 +413,8 @@ elif analysis_mode == "单一股票分析":
                         yaxis_title="价格",
                         legend_title="图例",
                         hovermode="x unified",
-                        template="plotly_white"
+                        template="plotly_white",
+                        height=800
                     )
                     
                     # Display the plot in Streamlit
