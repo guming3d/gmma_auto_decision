@@ -24,20 +24,52 @@ st.markdown("""
 可以分析单个股票或自动扫描最近出现买入信号的股票。
 """)
 
+# Function to get start date based on selected duration
+def get_start_date(duration):
+    today = datetime.today()
+    if duration == "10年":
+        return (today - timedelta(days=365*10)).strftime('%Y%m%d')
+    elif duration == "5年":
+        return (today - timedelta(days=365*5)).strftime('%Y%m%d')
+    elif duration == "3年":
+        return (today - timedelta(days=365*3)).strftime('%Y%m%d')
+    elif duration == "2年":
+        return (today - timedelta(days=365*2)).strftime('%Y%m%d')
+    elif duration == "1年":
+        return (today - timedelta(days=365)).strftime('%Y%m%d')
+    elif duration == "6个月":
+        return (today - timedelta(days=180)).strftime('%Y%m%d')
+    elif duration == "3个月":
+        return (today - timedelta(days=90)).strftime('%Y%m%d')
+    else:
+        return (today - timedelta(days=180)).strftime('%Y%m%d')  # Default to 6 months
+
 # Function to check if a stock has a recent crossover
-def has_recent_crossover(ticker, days_to_check=3, market="A"):
+def has_recent_crossover(ticker, days_to_check=3, market="A", duration="6个月"):
     try:
-        # Calculate date range for the past 2 months (enough data to calculate EMAs)
+        # Calculate date range based on selected duration
         end_date = datetime.today().strftime('%Y%m%d')
-        start_date = (datetime.today() - timedelta(days=120)).strftime('%Y%m%d')
+        start_date = get_start_date(duration)
         
-        # Fetch stock data using akshare based on market
+        # For accurate EMA calculation, we need additional historical data
+        # Calculate a buffer period to ensure proper initialization of longer period EMAs
+        max_ema_period = 60  # The longest EMA period used
+        today = datetime.today()
+        
+        # Convert start_date to datetime for adjustment
+        start_date_dt = datetime.strptime(start_date, '%Y%m%d')
+        
+        # Add buffer period for EMA calculation (3x the max EMA period for proper initialization)
+        buffer_days = max_ema_period * 3
+        extended_start_date = (start_date_dt - timedelta(days=buffer_days)).strftime('%Y%m%d')
+        
+        # Fetch stock data using akshare based on market with extended period
         if market == "HK":
             stock_data = ak.stock_hk_hist(symbol=ticker, period="daily", 
-                                         start_date=start_date, end_date=end_date, adjust="")
+                                         start_date=extended_start_date, end_date=end_date, adjust="")
         else:
             stock_data = ak.stock_zh_a_hist(symbol=ticker, period="daily", 
-                                         start_date=start_date, end_date=end_date, adjust="")
+                                         start_date=extended_start_date, end_date=end_date, adjust="")
                                          
         if stock_data.empty:
             return False, None
@@ -48,7 +80,7 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
         stock_data.set_index('date', inplace=True)
         stock_data.sort_index(inplace=True)
         
-        # Calculate EMAs
+        # Calculate EMAs with proper initialization period
         for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
             stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
         
@@ -67,11 +99,14 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                 stock_data.loc[stock_data.index[i], 'crossover'] = True
         
+        # Filter to only include the originally requested date range for display/analysis
+        display_data = stock_data[stock_data.index >= pd.to_datetime(start_date)]
+        
         # Check if there's a crossover in the last 'days_to_check' days
-        recent_data = stock_data.iloc[-days_to_check:]
+        recent_data = display_data.iloc[-days_to_check:]
         has_crossover = recent_data['crossover'].any()
         
-        return has_crossover, stock_data if has_crossover else None
+        return has_crossover, display_data if has_crossover else None
     except Exception as e:
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
@@ -80,6 +115,14 @@ def has_recent_crossover(ticker, days_to_check=3, market="A"):
 # Sidebar options
 st.sidebar.title("分析模式")
 analysis_mode = st.sidebar.radio("选择模式", ["港股扫描","单一股票分析" ])
+
+# Add duration selection to sidebar (common for both modes)
+st.sidebar.title("历史数据范围")
+data_duration = st.sidebar.selectbox(
+    "选择历史数据时长",
+    ["10年", "5年", "3年", "2年", "1年", "6个月", "3个月"],
+    index=5  # Default to 6 months
+)
 
 if analysis_mode == "港股扫描":
     st.sidebar.title("港股扫描设置")
@@ -111,12 +154,12 @@ if analysis_mode == "港股扫描":
                     ticker = row['代码']
                     name = row['名称']
                     
-                    # Check for crossover using our modified function with HK market parameter
-                    has_crossover, stock_data = has_recent_crossover(ticker, hk_days_to_check, market="HK")
+                    # Check for crossover using our modified function with HK market parameter and duration
+                    has_crossover, display_data = has_recent_crossover(ticker, hk_days_to_check, market="HK", duration=data_duration)
                     
                     if has_crossover:
                         # Add to crossover list
-                        crossover_stocks.append((ticker, name, stock_data))
+                        crossover_stocks.append((ticker, name, display_data))
                         
                         # Create expander for this stock
                         with st.expander(f"{ticker} - {name}", expanded=True):
@@ -125,11 +168,11 @@ if analysis_mode == "港股扫描":
                             
                             # Add candlestick chart
                             fig.add_trace(go.Candlestick(
-                                x=stock_data.index,
-                                open=stock_data["open"],
-                                high=stock_data[["open", "close"]].max(axis=1),
-                                low=stock_data[["open", "close"]].min(axis=1),
-                                close=stock_data["close"],
+                                x=display_data.index,
+                                open=display_data["open"],
+                                high=display_data[["open", "close"]].max(axis=1),
+                                low=display_data[["open", "close"]].min(axis=1),
+                                close=display_data["close"],
                                 increasing_line_color='red',
                                 decreasing_line_color='green',
                                 name="Price"
@@ -138,8 +181,8 @@ if analysis_mode == "港股扫描":
                             # Add short-term EMAs (blue)
                             for j, period in enumerate([3, 5, 8, 10, 12, 15]):
                                 fig.add_trace(go.Scatter(
-                                    x=stock_data.index,
-                                    y=stock_data[f"EMA{period}"],
+                                    x=display_data.index,
+                                    y=display_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
                                     line=dict(color="skyblue", width=1),
@@ -150,8 +193,8 @@ if analysis_mode == "港股扫描":
                             # Add long-term EMAs (red)
                             for j, period in enumerate([30, 35, 40, 45, 50, 60]):
                                 fig.add_trace(go.Scatter(
-                                    x=stock_data.index,
-                                    y=stock_data[f"EMA{period}"],
+                                    x=display_data.index,
+                                    y=display_data[f"EMA{period}"],
                                     mode="lines",
                                     name=f"EMA{period}",
                                     line=dict(color="lightcoral", width=1),
@@ -161,25 +204,25 @@ if analysis_mode == "港股扫描":
                             
                             # Add average EMAs
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data['avg_short_ema'],
+                                x=display_data.index,
+                                y=display_data['avg_short_ema'],
                                 mode="lines",
                                 name="Avg Short-term EMAs",
                                 line=dict(color="blue", width=2, dash='dot'),
                             ))
                             
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data['avg_long_ema'],
+                                x=display_data.index,
+                                y=display_data['avg_long_ema'],
                                 mode="lines",
                                 name="Avg Long-term EMAs",
                                 line=dict(color="red", width=2, dash='dot'),
                             ))
                             
                             # Mark crossover signals
-                            crossover_dates = stock_data[stock_data['crossover']].index
+                            crossover_dates = display_data[display_data['crossover']].index
                             for date in crossover_dates:
-                                price_at_crossover = stock_data.loc[date, 'close']
+                                price_at_crossover = display_data.loc[date, 'close']
                                 fig.add_annotation(
                                     x=date,
                                     y=price_at_crossover * 1.04,
@@ -249,9 +292,9 @@ elif analysis_mode == "单一股票分析":
     show_short_term = st.sidebar.checkbox("显示短期 EMA", value=True)
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
     
-    # Calculate date range for the past 6 months
+    # Calculate date range based on selected duration
     end_date = datetime.today().strftime('%Y%m%d')
-    start_date = (datetime.today() - timedelta(days=180)).strftime('%Y%m%d')
+    start_date = get_start_date(data_duration)
     
     # Fetch and process stock data
     with st.spinner("获取数据中..."):
@@ -263,10 +306,21 @@ elif analysis_mode == "单一股票分析":
                 ticker = ticker.split('.')[0].zfill(5)  # Format to 5 digits with leading zeros
                 if ticker.isdigit() and (len(ticker) == 4 or len(ticker) == 5):
                     is_valid_ticker = True
+                
+                # For accurate EMA calculation, we need additional historical data
+                # Calculate a buffer period to ensure proper initialization of longer period EMAs
+                max_ema_period = 60  # The longest EMA period used
+                
+                # Convert start_date to datetime for adjustment
+                start_date_dt = datetime.strptime(start_date, '%Y%m%d')
+                
+                # Add buffer period for EMA calculation (3x the max EMA period for proper initialization)
+                buffer_days = max_ema_period * 3
+                extended_start_date = (start_date_dt - timedelta(days=buffer_days)).strftime('%Y%m%d')
                         
-                # Fetch stock data using akshare based on market type
+                # Fetch stock data using akshare based on market type with extended period
                 stock_data = ak.stock_hk_hist(symbol=ticker, period="daily", 
-                                              start_date=start_date, end_date=end_date, adjust="")
+                                              start_date=extended_start_date, end_date=end_date, adjust="")
                     
                 if stock_data.empty:
                     market_name = "港股" 
@@ -279,7 +333,7 @@ elif analysis_mode == "单一股票分析":
                     stock_data.set_index('date', inplace=True)
                     stock_data.sort_index(inplace=True)
                     
-                    # Calculate Exponential Moving Averages (EMAs)
+                    # Calculate Exponential Moving Averages (EMAs) with proper initialization period
                     for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
                         stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
                     
@@ -300,16 +354,19 @@ elif analysis_mode == "单一股票分析":
                         if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
                             stock_data.loc[stock_data.index[i], 'crossover'] = True
                     
+                    # Filter to only include the originally requested date range for display/analysis
+                    display_data = stock_data[stock_data.index >= pd.to_datetime(start_date)]
+                    
                     # Create Plotly figure
                     fig = go.Figure()
                     
                     # Add candlestick chart
                     fig.add_trace(go.Candlestick(
-                        x=stock_data.index,
-                        open=stock_data["open"],
-                        high=stock_data[["open", "close"]].max(axis=1),
-                        low=stock_data[["open", "close"]].min(axis=1),
-                        close=stock_data["close"],
+                        x=display_data.index,
+                        open=display_data["open"],
+                        high=display_data[["open", "close"]].max(axis=1),
+                        low=display_data[["open", "close"]].min(axis=1),
+                        close=display_data["close"],
                         increasing_line_color='red',  # Red for increasing in Asian markets
                         decreasing_line_color='green',  # Green for decreasing in Asian markets
                         name="Price"
@@ -319,8 +376,8 @@ elif analysis_mode == "单一股票分析":
                     if show_short_term:
                         for i, period in enumerate([3, 5, 8, 10, 12, 15]):
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data[f"EMA{period}"],
+                                x=display_data.index,
+                                y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
                                 line=dict(color="blue", width=1),
@@ -332,8 +389,8 @@ elif analysis_mode == "单一股票分析":
                     if show_long_term:
                         for i, period in enumerate([30, 35, 40, 45, 50, 60]):
                             fig.add_trace(go.Scatter(
-                                x=stock_data.index,
-                                y=stock_data[f"EMA{period}"],
+                                x=display_data.index,
+                                y=display_data[f"EMA{period}"],
                                 mode="lines",
                                 name=f"EMA{period}",
                                 line=dict(color="red", width=1),
@@ -343,25 +400,25 @@ elif analysis_mode == "单一股票分析":
                     
                     # Add average short-term and long-term EMAs to visualize crossover
                     fig.add_trace(go.Scatter(
-                        x=stock_data.index,
-                        y=stock_data['avg_short_ema'],
+                        x=display_data.index,
+                        y=display_data['avg_short_ema'],
                         mode="lines",
                         name="Avg Short-term EMAs",
                         line=dict(color="blue", width=2, dash='dot'),
                     ))
                     
                     fig.add_trace(go.Scatter(
-                        x=stock_data.index,
-                        y=stock_data['avg_long_ema'],
+                        x=display_data.index,
+                        y=display_data['avg_long_ema'],
                         mode="lines",
                         name="Avg Long-term EMAs",
                         line=dict(color="red", width=2, dash='dot'),
                     ))
                     
                     # Mark crossover signals on the chart
-                    crossover_dates = stock_data[stock_data['crossover']].index
+                    crossover_dates = display_data[display_data['crossover']].index
                     for date in crossover_dates:
-                        price_at_crossover = stock_data.loc[date, 'close']
+                        price_at_crossover = display_data.loc[date, 'close']
                         # Add vertical line at crossover
                         fig.add_shape(
                             type="line",
