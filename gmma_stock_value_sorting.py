@@ -9,14 +9,6 @@ from functools import lru_cache
 import os
 import json
 import traceback
-import logging
-
-# Configure logging to print to stdout
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 
 # Set page layout to wide mode
 st.set_page_config(
@@ -45,29 +37,22 @@ def get_stock_list():
         stock_list_df = ak.stock_info_a_code_name()
         return stock_list_df
     except Exception as e:
-        error_msg = f"获取股票列表失败: {str(e)}"
-        logging.error(error_msg)
-        logging.error(traceback.format_exc())
-        st.error(error_msg)
+        st.error(f"获取股票列表失败: {str(e)}")
         return pd.DataFrame(columns=['code', 'name'])
 
 # Function to get historical market value data for a stock
-def get_stock_market_value(symbol, start_date, end_date, silent=True):
+def get_stock_market_value(symbol, start_date, end_date):
     """获取指定股票在给定日期范围的市值数据"""
     try:
         # For akshare stock_zh_a_hist, the symbol should not have sh/sz prefix
         symbol_no_prefix = symbol
         if symbol.startswith('sh') or symbol.startswith('sz'):
             symbol_no_prefix = symbol[2:]
-
-        print("checking stock with symbol:", symbol)
-        
             
         # Use the standard AkShare history function that includes market value data
         hist_df = ak.stock_zh_a_hist(symbol=symbol_no_prefix, period="daily", 
                                   start_date=start_date, end_date=end_date, adjust="")
         
-        print(hist_df.head())
         if hist_df.empty:
             return None
         
@@ -75,55 +60,39 @@ def get_stock_market_value(symbol, start_date, end_date, silent=True):
         if '流通市值' not in hist_df.columns or '总市值' not in hist_df.columns:
             # Try to find alternative columns that might contain market value data
             market_value_columns = [col for col in hist_df.columns if '市值' in col]
-            if market_value_columns and not silent:
-                # Only log once for debugging, not for every stock
-                if symbol_no_prefix in ['000001', '600000']:
-                    st.warning(f"股票 {symbol} 数据列名称不标准，找到可能的市值列: {market_value_columns}")
+            if market_value_columns:
+                st.warning(f"股票 {symbol} 数据列名称不标准，找到可能的市值列: {market_value_columns}")
             
-            # Try to use stock_zh_a_hist with different parameters or approach
+            # For debugging - show what columns we actually have
+            st.info(f"股票 {symbol} 可用列: {list(hist_df.columns)}")
+            
+            # If we don't have the required columns, try to get market value data from another API
             try:
-                # Try to get historical market data using a different approach
-                start_date_obj = datetime.strptime(start_date, '%Y%m%d')
-                end_date_obj = datetime.strptime(end_date, '%Y%m%d')
+                # Use stock_individual_info_em to get current market value
+                stock_info = ak.stock_individual_info_em(symbol=symbol_no_prefix)
                 
-                # Try with individual dates to get day-specific data
-                start_hist = ak.stock_zh_a_hist(symbol=symbol_no_prefix, period="daily",
-                                         start_date=start_date, end_date=start_date, adjust="")
-                end_hist = ak.stock_zh_a_hist(symbol=symbol_no_prefix, period="daily",
-                                       start_date=end_date, end_date=end_date, adjust="")
-                
-                # Check if we got market value data in either query
-                if (not start_hist.empty and not end_hist.empty and 
-                    '流通市值' in start_hist.columns and '总市值' in start_hist.columns and
-                    '流通市值' in end_hist.columns and '总市值' in end_hist.columns):
+                if not stock_info.empty:
+                    # Extract total and circulating market value if available
+                    market_value_row = stock_info[stock_info['item'] == '总市值'].iloc[0]['value'] if '总市值' in stock_info['item'].values else None
+                    circ_value_row = stock_info[stock_info['item'] == '流通市值'].iloc[0]['value'] if '流通市值' in stock_info['item'].values else None
                     
-                    # Combine the data
-                    combined_df = pd.concat([start_hist, end_hist])
-                    return combined_df[['日期', '名称', '流通市值', '总市值']]
-                
-                # If still no market value data, return None instead of using current data
-                if not silent:
-                    error_msg = f"无法获取股票 {symbol} 的历史市值数据"
-                    st.warning(error_msg)
-                    logging.warning(error_msg)
-                return None
-                
+                    # Create a new DataFrame with the market value data for the specified dates
+                    market_value_df = pd.DataFrame({
+                        '日期': [start_date, end_date],
+                        '名称': [symbol_no_prefix, symbol_no_prefix],
+                        '流通市值': [circ_value_row, circ_value_row],
+                        '总市值': [market_value_row, market_value_row]
+                    })
+                    
+                    return market_value_df
             except Exception as e:
-                if not silent:
-                    error_msg = f"尝试获取 {symbol} 市值数据的备选方法失败: {str(e)}"
-                    st.warning(error_msg)
-                    logging.warning(error_msg)
-                    logging.debug(traceback.format_exc())
+                st.warning(f"尝试获取 {symbol} 市值数据的备选方法失败: {str(e)}")
                 return None
         
         # If we have the correct columns, return them
         return hist_df[['日期', '名称', '流通市值', '总市值']]
     except Exception as e:
-        if not silent:
-            error_msg = f"获取 {symbol} 数据失败: {str(e)}"
-            st.warning(error_msg)
-            logging.warning(error_msg)
-            logging.debug(traceback.format_exc())
+        st.warning(f"获取 {symbol} 数据失败: {str(e)}")
         return None
 
 # Function to test available AkShare functions for historical data
@@ -181,30 +150,12 @@ def add_exchange_prefix(code):
         return f"sz{code}"
 
 # Function to get market value for specific dates
-def get_market_value_for_dates(symbol, start_date, end_date, silent=True):
+def get_market_value_for_dates(symbol, start_date, end_date):
     """获取指定股票在起始日和结束日的市值数据"""
     try:
         # Get all data in range
-        df = get_stock_market_value(symbol, start_date, end_date, silent)
-        
-        # Check if dataframe is None or empty
-        if df is None:
-            logging.warning(f"股票 {symbol}: 获取数据返回为 None")
-            return None, None, None, None, None
-        
-        if df.empty:
-            logging.warning(f"股票 {symbol}: 获取的数据为空 DataFrame")
-            return None, None, None, None, None
-        
-        # Log the DataFrame columns and first row for debugging
-        logging.debug(f"股票 {symbol} 数据列: {list(df.columns)}")
-        logging.debug(f"股票 {symbol} 首行数据: {df.iloc[0].to_dict() if len(df) > 0 else 'No data'}")
-        
-        # Check required columns
-        required_columns = ['日期', '名称', '流通市值', '总市值']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            logging.warning(f"股票 {symbol}: 缺少必要的列: {', '.join(missing_columns)}")
+        df = get_stock_market_value(symbol, start_date, end_date)
+        if df is None or df.empty:
             return None, None, None, None, None
         
         # Convert date to datetime for comparison
@@ -212,7 +163,6 @@ def get_market_value_for_dates(symbol, start_date, end_date, silent=True):
         
         # Ensure we have at least one record
         if len(df) < 1:
-            logging.warning(f"股票 {symbol}: 数据行数为0")
             return None, None, None, None, None
         
         # Get start date record (first available)
@@ -221,78 +171,26 @@ def get_market_value_for_dates(symbol, start_date, end_date, silent=True):
         # Ensure we have at least two different days of data
         if len(df) < 2 and start_date != end_date:
             # If we only have one record but requested a range, use that record for both start and end
-            logging.info(f"股票 {symbol}: 只有一天的数据，日期为 {start_record['日期']}")
             end_record = start_record
         else:
             end_record = df.iloc[-1]
         
-        # Log actual dates we're using for debugging
-        logging.debug(f"股票 {symbol}: 使用开始日期 {start_record['日期']} 和结束日期 {end_record['日期']}")
-        
         # Extract values - ensure numeric values
         try:
-            # Check individual values
-            
-            # Check name
             name = start_record['名称']
-            if pd.isna(name) or name == '':
-                logging.warning(f"股票 {symbol}: 名称为空")
-                return None, None, None, None, None
-                
-            # Check market values - convert to numeric and check for NaN
-            try:
-                start_circ_mv = pd.to_numeric(start_record['流通市值'], errors='coerce')
-                if pd.isna(start_circ_mv):
-                    logging.warning(f"股票 {symbol}: 开始日期的流通市值为NaN或无法转换为数值")
-                    return None, None, None, None, None
-            except Exception as e:
-                logging.warning(f"股票 {symbol}: 转换开始日期流通市值时出错: {str(e)}")
-                return None, None, None, None, None
-                
-            try:
-                end_circ_mv = pd.to_numeric(end_record['流通市值'], errors='coerce')
-                if pd.isna(end_circ_mv):
-                    logging.warning(f"股票 {symbol}: 结束日期的流通市值为NaN或无法转换为数值")
-                    return None, None, None, None, None
-            except Exception as e:
-                logging.warning(f"股票 {symbol}: 转换结束日期流通市值时出错: {str(e)}")
-                return None, None, None, None, None
-                
-            try:
-                start_total_mv = pd.to_numeric(start_record['总市值'], errors='coerce')
-                if pd.isna(start_total_mv):
-                    logging.warning(f"股票 {symbol}: 开始日期的总市值为NaN或无法转换为数值")
-                    return None, None, None, None, None
-            except Exception as e:
-                logging.warning(f"股票 {symbol}: 转换开始日期总市值时出错: {str(e)}")
-                return None, None, None, None, None
-                
-            try:
-                end_total_mv = pd.to_numeric(end_record['总市值'], errors='coerce')
-                if pd.isna(end_total_mv):
-                    logging.warning(f"股票 {symbol}: 结束日期的总市值为NaN或无法转换为数值")
-                    return None, None, None, None, None
-            except Exception as e:
-                logging.warning(f"股票 {symbol}: 转换结束日期总市值时出错: {str(e)}")
-                return None, None, None, None, None
+            start_circ_mv = pd.to_numeric(start_record['流通市值'], errors='coerce')
+            end_circ_mv = pd.to_numeric(end_record['流通市值'], errors='coerce')
+            start_total_mv = pd.to_numeric(start_record['总市值'], errors='coerce')
+            end_total_mv = pd.to_numeric(end_record['总市值'], errors='coerce')
             
-            # Log successful market value extractions for debugging
-            logging.debug(f"股票 {symbol} - 成功获取市值数据:")
-            logging.debug(f"  开始日期流通市值: {start_circ_mv}")
-            logging.debug(f"  结束日期流通市值: {end_circ_mv}")
-            logging.debug(f"  开始日期总市值: {start_total_mv}")
-            logging.debug(f"  结束日期总市值: {end_total_mv}")
+            # Check for NaN values
+            if pd.isna(start_circ_mv) or pd.isna(end_circ_mv) or pd.isna(start_total_mv) or pd.isna(end_total_mv):
+                return None, None, None, None, None
                 
             return name, start_circ_mv, end_circ_mv, start_total_mv, end_total_mv
-        except KeyError as e:
-            logging.warning(f"股票 {symbol}: 缺少数据列 {str(e)}")
-            return None, None, None, None, None
-        except TypeError as e:
-            logging.warning(f"股票 {symbol}: 类型错误 {str(e)}")
+        except (KeyError, TypeError) as e:
             return None, None, None, None, None
     except Exception as e:
-        logging.error(f"股票 {symbol}: 获取市值数据时发生异常: {str(e)}")
-        logging.error(traceback.format_exc())
         return None, None, None, None, None
 
 # Function to calculate date range formatted for API
@@ -312,8 +210,6 @@ def test_api_connectivity(start_date_str, end_date_str):
     """测试与API的连接和数据获取"""
     test_stocks = ['000001', '600000']  # Test with both SZ and SH markets
     results = []
-    
-    logging.info(f"开始测试API连接，使用日期范围: {start_date_str} 至 {end_date_str}")
     
     # First, test which functions are available
     function_test_results = test_available_history_functions()
@@ -340,9 +236,6 @@ def test_api_connectivity(start_date_str, end_date_str):
                     'sample': {}
                 })
         except Exception as e:
-            error_msg = f"获取 {stock} 数据测试失败: {str(e)}"
-            logging.error(error_msg)
-            logging.error(traceback.format_exc())
             results.append({
                 'stock': stock,
                 'status': 'error',
@@ -416,16 +309,6 @@ def main():
         step=10
     )
     
-    # Number of stocks to process
-    process_limit = st.sidebar.slider(
-        "处理股票数量限制",
-        min_value=100,
-        max_value=5500,
-        value=300,
-        step=100,
-        help="限制处理的股票数量，数值越小处理越快，设为最大值将处理所有股票"
-    )
-    
     # Add a test API button
     if st.sidebar.button("测试API连接", help="点击测试与API的连接状态"):
         with st.spinner("正在测试API连接和可用函数..."):
@@ -457,10 +340,7 @@ def main():
                             with st.expander("查看详细错误信息"):
                                 st.code(result['traceback'])
             except Exception as e:
-                error_msg = f"测试API连接时出错: {str(e)}"
-                st.error(error_msg)
-                logging.error(error_msg)
-                logging.error(traceback.format_exc())
+                st.error(f"测试API连接时出错: {str(e)}")
                 st.code(traceback.format_exc())
     
     # Start analysis button
@@ -478,12 +358,7 @@ def main():
                 if stock_list_df.empty:
                     st.error("无法获取股票列表，请稍后重试")
                     return
-                
-                # Limit to first 300 stocks for faster processing
-                original_count = len(stock_list_df)
-                limit_count = process_limit  # Use the value from UI slider
-                stock_list_df = stock_list_df.head(limit_count)
-                st.success(f"共获取到 {original_count} 只 A 股股票，将处理前 {limit_count} 只进行分析")
+                st.success(f"共获取到 {len(stock_list_df)} 只 A 股股票")
             
             # Initialize results dataframe
             results = []
@@ -503,112 +378,68 @@ def main():
             errors = 0
             error_logs = []
             
-            # Track timing for estimation
-            start_time = time.time()
-            time_estimates = []
+            # Limit to first 20 stocks for testing if needed - comment out in production
+            # stock_list_df = stock_list_df.head(20)
             
-            # Use batch processing to improve performance
-            batch_size = 10  # Process stocks in batches of 10
-            
-            # Create a placeholder for batch progress
-            batch_status = st.empty()
-            estimate_text = st.empty()
-            
-            # Process stocks in batches
-            for batch_start in range(0, total_stocks, batch_size):
-                batch_start_time = time.time()
-                batch_end = min(batch_start + batch_size, total_stocks)
-                batch_status.text(f"处理批次 {batch_start//batch_size + 1}/{(total_stocks + batch_size - 1)//batch_size}")
-                
-                # Get current batch of stocks
-                batch_stocks = stock_list_df.iloc[batch_start:batch_end]
-                
-                for _, row in batch_stocks.iterrows():
-                    try:
-                        # Update progress
-                        processed += 1
-                        if processed % 5 == 0:
-                            progress_bar.progress(min(processed / total_stocks, 1.0))
-                            
-                            # Calculate time estimate
-                            elapsed_time = time.time() - start_time
-                            stocks_per_second = processed / elapsed_time if elapsed_time > 0 else 0
-                            remaining_stocks = total_stocks - processed
-                            estimated_remaining_seconds = remaining_stocks / stocks_per_second if stocks_per_second > 0 else 0
-                            
-                            # Format time estimate
-                            if estimated_remaining_seconds < 60:
-                                time_estimate = f"约 {int(estimated_remaining_seconds)} 秒"
-                            elif estimated_remaining_seconds < 3600:
-                                time_estimate = f"约 {int(estimated_remaining_seconds / 60)} 分钟"
-                            else:
-                                time_estimate = f"约 {int(estimated_remaining_seconds / 3600)} 小时 {int((estimated_remaining_seconds % 3600) / 60)} 分钟"
-                            
-                            status_text.text(f"已处理: {processed}/{total_stocks} (错误: {errors}) - 每股平均用时: {elapsed_time/processed:.2f}秒")
-                            estimate_text.text(f"预计剩余时间: {time_estimate}")
-                        
-                        # Get stock code
-                        code = str(row['code']).zfill(6)
-                        
-                        # Get market value data
-                        name, start_circ_mv, end_circ_mv, start_total_mv, end_total_mv = get_market_value_for_dates(
-                            code, start_date_str, end_date_str, silent=True
-                        )
-                        
-                        # Skip if data is missing
-                        if None in (name, start_circ_mv, end_circ_mv, start_total_mv, end_total_mv):
-                            errors += 1
-                            # Add to error log
-                            if name is None:
-                                name = row.get('name', '未知')
-                            error_detail = f"股票 {code} ({name}): 数据不完整或缺失"
-                            error_logs.append(error_detail)
-                            continue
-                        
-                        # Calculate changes
-                        circ_mv_change = end_circ_mv - start_circ_mv
-                        total_mv_change = end_total_mv - start_total_mv
-                        
-                        # Use try-except for percentage calculations to handle division by zero
-                        try:
-                            circ_mv_change_percent = (circ_mv_change / start_circ_mv * 100) if start_circ_mv > 0 else 0
-                        except:
-                            circ_mv_change_percent = 0
-                            
-                        try:
-                            total_mv_change_percent = (total_mv_change / start_total_mv * 100) if start_total_mv > 0 else 0
-                        except:
-                            total_mv_change_percent = 0
-                        
-                        # Add to results
-                        results.append({
-                            'code': code,
-                            'name': name,
-                            'start_circ_mv': start_circ_mv,
-                            'end_circ_mv': end_circ_mv,
-                            'circ_mv_change': circ_mv_change,
-                            'circ_mv_change_percent': circ_mv_change_percent,
-                            'start_total_mv': start_total_mv,
-                            'end_total_mv': end_total_mv,
-                            'total_mv_change': total_mv_change,
-                            'total_mv_change_percent': total_mv_change_percent
-                        })
-                    except Exception as e:
+            for _, row in stock_list_df.iterrows():
+                try:
+                    # Update progress
+                    processed += 1
+                    if processed % 10 == 0:
+                        progress_bar.progress(min(processed / total_stocks, 1.0))
+                        status_text.text(f"已处理: {processed}/{total_stocks} (错误: {errors})")
+                    
+                    # Get stock code and add exchange prefix
+                    code = str(row['code']).zfill(6)
+                    
+                    # Get market value data
+                    name, start_circ_mv, end_circ_mv, start_total_mv, end_total_mv = get_market_value_for_dates(
+                        code, start_date_str, end_date_str
+                    )
+                    
+                    # Skip if data is missing
+                    if None in (name, start_circ_mv, end_circ_mv, start_total_mv, end_total_mv):
                         errors += 1
-                        # Add to error log with more details
-                        code = str(row['code']).zfill(6) if 'code' in row else 'unknown'
-                        name = row.get('name', '未知')
-                        error_detail = f"股票 {code} ({name}): {str(e)}"
-                        error_logs.append(error_detail)
-                        logging.error(error_detail)
-                        logging.debug(traceback.format_exc())
+                        # Add to error log
+                        if name is None:
+                            name = row.get('name', '未知')
+                        error_logs.append(f"股票 {code} ({name}): 数据不完整或缺失")
                         continue
-                
-                # Add a small delay between batches to prevent API rate limiting
-                time.sleep(0.5)
-            
-            # Clear batch status
-            batch_status.empty()
+                    
+                    # Calculate changes
+                    circ_mv_change = end_circ_mv - start_circ_mv
+                    total_mv_change = end_total_mv - start_total_mv
+                    
+                    # Use try-except for percentage calculations to handle division by zero
+                    try:
+                        circ_mv_change_percent = (circ_mv_change / start_circ_mv * 100) if start_circ_mv > 0 else 0
+                    except:
+                        circ_mv_change_percent = 0
+                        
+                    try:
+                        total_mv_change_percent = (total_mv_change / start_total_mv * 100) if start_total_mv > 0 else 0
+                    except:
+                        total_mv_change_percent = 0
+                    
+                    # Add to results
+                    results.append({
+                        'code': code,
+                        'name': name,
+                        'start_circ_mv': start_circ_mv,
+                        'end_circ_mv': end_circ_mv,
+                        'circ_mv_change': circ_mv_change,
+                        'circ_mv_change_percent': circ_mv_change_percent,
+                        'start_total_mv': start_total_mv,
+                        'end_total_mv': end_total_mv,
+                        'total_mv_change': total_mv_change,
+                        'total_mv_change_percent': total_mv_change_percent
+                    })
+                except Exception as e:
+                    errors += 1
+                    # Add to error log with more details
+                    error_detail = f"股票 {code} ({row.get('name', '未知')}): {str(e)}"
+                    error_logs.append(error_detail)
+                    continue
             
             # Update error log in UI
             with error_expander:
@@ -749,11 +580,8 @@ def main():
                     mime="text/csv"
                 )
         except Exception as e:
-            error_msg = f"分析过程中发生错误: {str(e)}"
-            st.error(error_msg)
-            logging.error(error_msg)
-            logging.error(traceback.format_exc())
+            st.error(f"分析过程中发生错误: {str(e)}")
             st.code(traceback.format_exc())
 
 if __name__ == "__main__":
-    main()
+    main() 
