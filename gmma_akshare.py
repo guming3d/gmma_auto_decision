@@ -383,6 +383,7 @@ else:  # Auto scan mode
     scan_mode = st.sidebar.radio("扫描范围", ["按行业板块","全部 A 股"])
     
     selected_industry = None
+    selected_industries = []  # Initialize with empty list to prevent NameError
     
     # Industry board selection
     if scan_mode == "按行业板块":
