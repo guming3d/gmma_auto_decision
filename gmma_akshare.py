@@ -382,6 +382,22 @@ else:  # Auto scan mode
     # Add industry selection option
     scan_mode = st.sidebar.radio("扫描范围", ["按行业板块","全部 A 股"])
     
+    # Add filtering options back with different default values
+    if st.sidebar.checkbox("显示高级过滤选项", value=False):
+        st.sidebar.subheader("过滤选项")
+        exclude_st = st.sidebar.checkbox("排除ST股票", value=True)
+        exclude_688 = st.sidebar.checkbox("排除科创板股票 (688开头)", value=True) 
+        exclude_300 = st.sidebar.checkbox("排除创业板股票 (300开头)", value=True)
+        exclude_8 = st.sidebar.checkbox("排除北交所股票 (8开头)", value=True)
+        exclude_4 = st.sidebar.checkbox("排除三板股票 (4开头)", value=True)
+    else:
+        # Default filtering values
+        exclude_st = True
+        exclude_688 = True if scan_mode == "全部 A 股" else False
+        exclude_300 = True if scan_mode == "全部 A 股" else False
+        exclude_8 = True if scan_mode == "全部 A 股" else False
+        exclude_4 = True if scan_mode == "全部 A 股" else False
+    
     selected_industry = None
     selected_industries = []  # Initialize with empty list to prevent NameError
     
@@ -524,7 +540,14 @@ else:  # Auto scan mode
                         # Skip stocks with special prefixes only if scanning all stocks
                         if scan_mode == "全部 A 股" and ticker.startswith(('688', '300', '8', '4')):
                             continue
-                            
+                        
+                        # Skip stocks based on filter settings
+                        if (exclude_688 and ticker.startswith('688')) or \
+                           (exclude_300 and ticker.startswith('300')) or \
+                           (exclude_8 and ticker.startswith('8')) or \
+                           (exclude_4 and ticker.startswith('4')):
+                            continue
+                        
                         # Check for crossover
                         has_crossover, stock_data = has_recent_crossover(ticker, days_to_check)
                         
