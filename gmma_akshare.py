@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 import os
 import json
 import time
@@ -34,10 +35,23 @@ TUSHARE_TOKEN = (
 )
 RATE_LIMIT_MSG = "每分钟最多访问"
 DEFAULT_MAX_RETRIES = 6
+CACHE_DIR = Path(__file__).resolve().parent / "cache"
+STOCK_BASIC_CACHE_PREFIX = "stock_basic"
+STOCK_BASIC_CACHE_SUFFIX = ".pkl"
+STOCK_BASIC_CACHE_MAX_FILES = 2
+STOCK_BASIC_CACHE_TTL = timedelta(days=7)
 
 
-def call_tushare_api(func, retries=DEFAULT_MAX_RETRIES, base_delay=1.2, backoff=1.5):
+def call_tushare_api(
+    func,
+    retries=DEFAULT_MAX_RETRIES,
+    base_delay=1.2,
+    backoff=1.5,
+    *,
+    api_name=None,
+):
     """Call a Tushare API with simple backoff when hitting rate limits."""
+    api_label = api_name or "unknown Tushare API"
     for attempt in range(1, retries + 1):
         try:
             return func()
@@ -46,9 +60,19 @@ def call_tushare_api(func, retries=DEFAULT_MAX_RETRIES, base_delay=1.2, backoff=
             is_rate_limited = RATE_LIMIT_MSG in message
             if is_rate_limited and attempt < retries:
                 sleep_time = base_delay * (backoff ** (attempt - 1))
-                print(f"Tushare rate limit hit, retrying in {sleep_time:.1f}s (attempt {attempt}/{retries})")
+                print(
+                    f"Tushare rate limit hit for {api_label}, retrying in "
+                    f"{sleep_time:.1f}s (attempt {attempt}/{retries}). Error: {message}"
+                )
                 time.sleep(sleep_time)
                 continue
+            if is_rate_limited:
+                print(
+                    f"Tushare rate limit hit for {api_label} and retries exhausted. "
+                    f"Error: {message}"
+                )
+            else:
+                print(f"Tushare API call failed for {api_label}: {message}")
             raise
 
 
@@ -60,9 +84,97 @@ def get_tushare_client():
     return ts.pro_api(TUSHARE_TOKEN)
 
 
+def _prepare_stock_basic_df(stock_df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure we have a consistent schema for stock_basic data."""
+    if stock_df is None or stock_df.empty:
+        return pd.DataFrame()
+    if "symbol" in stock_df.columns and "code" not in stock_df.columns:
+        stock_df = stock_df.rename(columns={"symbol": "code"})
+    if "code" not in stock_df.columns:
+        raise RuntimeError("stock_basic 数据缺少 code 列。")
+    stock_df["code"] = stock_df["code"].astype(str).str.zfill(6)
+    if "name" in stock_df.columns:
+        stock_df["name"] = stock_df["name"].fillna("")
+    else:
+        stock_df["name"] = ""
+    if "ts_code" not in stock_df.columns:
+        stock_df["ts_code"] = stock_df["code"].apply(to_ts_code)
+    if "industry" not in stock_df.columns:
+        stock_df["industry"] = ""
+    if "market" not in stock_df.columns:
+        stock_df["market"] = ""
+    if "list_date" not in stock_df.columns:
+        stock_df["list_date"] = ""
+    stock_df = stock_df.drop_duplicates(subset=["code"])
+    return stock_df
+
+
+def _stock_basic_cache_files():
+    """Return cache files sorted by most recent first."""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Directory already exists or cannot be created; proceed best-effort.
+        pass
+    cache_pattern = f"{STOCK_BASIC_CACHE_PREFIX}_*{STOCK_BASIC_CACHE_SUFFIX}"
+    files = sorted(
+        CACHE_DIR.glob(cache_pattern),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return files
+
+
+def _prune_stock_basic_cache():
+    """Keep only the newest STOCK_BASIC_CACHE_MAX_FILES cache entries."""
+    files = _stock_basic_cache_files()
+    for old_path in files[STOCK_BASIC_CACHE_MAX_FILES:]:
+        try:
+            old_path.unlink()
+        except OSError as exc:
+            print(f"无法删除过期的 stock_basic 缓存文件 {old_path}: {exc}")
+
+
+def _load_stock_basic_from_cache() -> pd.DataFrame | None:
+    """Load cached stock_basic data if it is still fresh."""
+    now = datetime.now()
+    for path in _stock_basic_cache_files():
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError as exc:
+            print(f"无法读取 stock_basic 缓存文件 {path}: {exc}")
+            continue
+        if now - mtime > STOCK_BASIC_CACHE_TTL:
+            continue
+        try:
+            cached_df = pd.read_pickle(path)
+        except Exception as exc:
+            print(f"读取 stock_basic 缓存文件失败 {path}: {exc}")
+            continue
+        prepared = _prepare_stock_basic_df(cached_df)
+        if not prepared.empty:
+            return prepared
+    return None
+
+
+def _save_stock_basic_cache(stock_df: pd.DataFrame):
+    """Persist latest stock_basic payload and drop older snapshots."""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    cache_path = CACHE_DIR / f"{STOCK_BASIC_CACHE_PREFIX}_{timestamp}{STOCK_BASIC_CACHE_SUFFIX}"
+    try:
+        stock_df.to_pickle(cache_path)
+    except Exception as exc:
+        print(f"保存 stock_basic 缓存失败 {cache_path}: {exc}")
+        return
+    _prune_stock_basic_cache()
+
+
 @st.cache_data(ttl=3600)
 def load_stock_basic():
     """Load basic stock metadata (code, name, industry, etc.)."""
+    cached_df = _load_stock_basic_from_cache()
+    if cached_df is not None:
+        return cached_df
     pro = get_tushare_client()
     fields = "ts_code,symbol,name,industry,market,list_date"
     stock_df = call_tushare_api(
@@ -70,14 +182,13 @@ def load_stock_basic():
             exchange="",
             list_status="L",
             fields=fields,
-        )
+        ),
+        api_name="pro.stock_basic",
     )
     if stock_df.empty:
         raise RuntimeError("无法从 Tushare 获取股票基础信息。")
-    stock_df = stock_df.rename(columns={"symbol": "code"})
-    stock_df["code"] = stock_df["code"].astype(str).str.zfill(6)
-    stock_df["name"] = stock_df["name"].fillna("")
-    stock_df = stock_df.drop_duplicates(subset=["code"])
+    stock_df = _prepare_stock_basic_df(stock_df)
+    _save_stock_basic_cache(stock_df)
     return stock_df
 
 
@@ -93,7 +204,8 @@ def get_latest_trade_date():
             start_date=start.strftime("%Y%m%d"),
             end_date=end.strftime("%Y%m%d"),
             fields="cal_date,is_open",
-        )
+        ),
+        api_name="pro.trade_cal",
     )
     if cal_df.empty:
         raise RuntimeError("无法获取交易日历信息。")
@@ -136,7 +248,8 @@ def fetch_daily_history(ticker: str, start_date: str, end_date: str) -> pd.DataF
     pro = get_tushare_client()
     ts_code = to_ts_code(ticker)
     df = call_tushare_api(
-        lambda: pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        lambda: pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date),
+        api_name="pro.daily",
     )
     if df is None or df.empty:
         return pd.DataFrame()
@@ -153,7 +266,8 @@ def compute_industry_change(stock_df: pd.DataFrame) -> dict:
         pro = get_tushare_client()
         trade_date = get_latest_trade_date()
         daily_df = call_tushare_api(
-            lambda: pro.daily(trade_date=trade_date, fields="ts_code,pct_chg")
+            lambda: pro.daily(trade_date=trade_date, fields="ts_code,pct_chg"),
+            api_name="pro.daily",
         )
         if daily_df is None or daily_df.empty:
             return {}
