@@ -1,13 +1,12 @@
 import streamlit as st
-import akshare as ak
 import pandas as pd
 import plotly.graph_objects as go
-import numpy as np
 from datetime import datetime, timedelta
-import time
 from functools import lru_cache
 import os
 import json
+import time
+import tushare as ts
 
 # Set page layout to wide mode
 st.set_page_config(
@@ -20,57 +19,255 @@ st.set_page_config(
 # App title and description
 st.title("顾比多重移动平均线 (GMMA) 图表")
 st.markdown("""
-此应用程序显示使用 akshare 数据的中国 A 股股票的古普利多重移动平均线 (GMMA) 图表。  
+此应用程序显示使用 Tushare 数据的中国 A 股股票的古普利多重移动平均线 (GMMA) 图表。  
 可以分析单个股票或自动扫描最近出现买入信号的股票。
 """)
+
+# ---------------------------------------------------------------------------
+# Tushare helpers
+# ---------------------------------------------------------------------------
+
+TUSHARE_TOKEN = (
+    os.getenv("TUSHARE_TOKEN")
+    or os.getenv("TS_TOKEN")
+    or os.getenv("TUSHARE_PRO_TOKEN")
+)
+RATE_LIMIT_MSG = "每分钟最多访问"
+DEFAULT_MAX_RETRIES = 6
+
+
+def call_tushare_api(func, retries=DEFAULT_MAX_RETRIES, base_delay=1.2, backoff=1.5):
+    """Call a Tushare API with simple backoff when hitting rate limits."""
+    for attempt in range(1, retries + 1):
+        try:
+            return func()
+        except Exception as exc:
+            message = str(exc)
+            is_rate_limited = RATE_LIMIT_MSG in message
+            if is_rate_limited and attempt < retries:
+                sleep_time = base_delay * (backoff ** (attempt - 1))
+                print(f"Tushare rate limit hit, retrying in {sleep_time:.1f}s (attempt {attempt}/{retries})")
+                time.sleep(sleep_time)
+                continue
+            raise
+
+
+@st.cache_resource
+def get_tushare_client():
+    """Return a cached Tushare Pro client."""
+    if not TUSHARE_TOKEN:
+        raise RuntimeError("请在环境变量 TUSHARE_TOKEN 中配置 Tushare 授权令牌。")
+    return ts.pro_api(TUSHARE_TOKEN)
+
+
+@st.cache_data(ttl=3600)
+def load_stock_basic():
+    """Load basic stock metadata (code, name, industry, etc.)."""
+    pro = get_tushare_client()
+    fields = "ts_code,symbol,name,industry,market,list_date"
+    stock_df = call_tushare_api(
+        lambda: pro.stock_basic(
+            exchange="",
+            list_status="L",
+            fields=fields,
+        )
+    )
+    if stock_df.empty:
+        raise RuntimeError("无法从 Tushare 获取股票基础信息。")
+    stock_df = stock_df.rename(columns={"symbol": "code"})
+    stock_df["code"] = stock_df["code"].astype(str).str.zfill(6)
+    stock_df["name"] = stock_df["name"].fillna("")
+    stock_df = stock_df.drop_duplicates(subset=["code"])
+    return stock_df
+
+
+@lru_cache(maxsize=1)
+def get_latest_trade_date():
+    """Fetch the latest open trading date."""
+    pro = get_tushare_client()
+    end = datetime.today()
+    start = end - timedelta(days=14)
+    cal_df = call_tushare_api(
+        lambda: pro.trade_cal(
+            exchange="",
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+            fields="cal_date,is_open",
+        )
+    )
+    if cal_df.empty:
+        raise RuntimeError("无法获取交易日历信息。")
+    open_days = cal_df[cal_df["is_open"] == 1]
+    if open_days.empty:
+        raise RuntimeError("最近两周没有交易日数据。")
+    return open_days.iloc[-1]["cal_date"]
+
+
+def normalize_symbol(ticker: str) -> str:
+    """Ensure ticker is a 6-digit numeric string."""
+    if not ticker:
+        return ""
+    ticker = ticker.strip()
+    if "." in ticker:
+        ticker = ticker.split(".")[0]
+    ticker = ticker.zfill(6)
+    return ticker
+
+
+def to_ts_code(symbol: str) -> str:
+    """Convert 6-digit numeric code to Tushare's ts_code."""
+    if not symbol:
+        return ""
+    if "." in symbol:
+        base, suffix = symbol.split(".", 1)
+        return f"{base.zfill(6)}.{suffix.upper()}"
+    symbol = symbol.strip().zfill(6)
+    if symbol.startswith(("6", "9")):
+        market = "SH"
+    elif symbol.startswith(("4", "8")):
+        market = "BJ"
+    else:
+        market = "SZ"
+    return f"{symbol}.{market}"
+
+
+def fetch_daily_history(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Fetch historical daily data for a ticker from Tushare."""
+    pro = get_tushare_client()
+    ts_code = to_ts_code(ticker)
+    df = call_tushare_api(
+        lambda: pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    )
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.rename(columns={"trade_date": "date"})
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+    df.sort_index(inplace=True)
+    return df
+
+
+def compute_industry_change(stock_df: pd.DataFrame) -> dict:
+    """Compute latest industry percentage change based on constituent stocks."""
+    try:
+        pro = get_tushare_client()
+        trade_date = get_latest_trade_date()
+        daily_df = call_tushare_api(
+            lambda: pro.daily(trade_date=trade_date, fields="ts_code,pct_chg")
+        )
+        if daily_df is None or daily_df.empty:
+            return {}
+        merged = daily_df.merge(
+            stock_df[["ts_code", "industry"]],
+            on="ts_code",
+            how="left",
+        )
+        merged = merged.dropna(subset=["industry", "pct_chg"])
+        if merged.empty:
+            return {}
+        grouped = merged.groupby("industry")["pct_chg"].mean()
+        return {industry: float(value) for industry, value in grouped.items()}
+    except Exception as exc:
+        print(f"Failed to compute industry change: {exc}")
+        return {}
+
+
+def build_industry_payload():
+    """Assemble industry metadata, constituent lists, and change stats."""
+    stock_df = load_stock_basic()
+    industry_df = stock_df.dropna(subset=["industry"]).copy()
+    industry_list = sorted(industry_df["industry"].unique().tolist())
+    industry_stocks = {}
+    industry_counts = {}
+    for industry in industry_list:
+        members = industry_df.loc[industry_df["industry"] == industry, ["code", "name"]]
+        industry_stocks[industry] = members.values.tolist()
+        industry_counts[industry] = len(industry_stocks[industry])
+    stock_to_industry = (
+        stock_df[["code", "industry"]]
+        .fillna({"industry": "未知"})
+        .set_index("code")["industry"]
+        .to_dict()
+    )
+    industry_change_pct = compute_industry_change(stock_df)
+    return {
+        "industry_list": industry_list,
+        "industry_stocks": industry_stocks,
+        "industry_counts": industry_counts,
+        "stock_to_industry": stock_to_industry,
+        "industry_change_pct": industry_change_pct,
+        "fetch_date": datetime.now().strftime('%Y-%m-%d'),
+    }
 
 # Function to check if a stock has a recent crossover
 def has_recent_crossover(ticker, days_to_check=3):
     try:
-        # Calculate date range for the past 2 months (enough data to calculate EMAs)
+        ticker = normalize_symbol(ticker)
         end_date = datetime.today().strftime('%Y%m%d')
         start_date = (datetime.today() - timedelta(days=120)).strftime('%Y%m%d')
-        
-        # Fetch stock data using akshare
-        stock_data = ak.stock_zh_a_hist(symbol=ticker, period="daily", 
-                                         start_date=start_date, end_date=end_date, adjust="")
+        stock_data = fetch_daily_history(ticker, start_date, end_date)
         if stock_data.empty:
             return False, None
-            
-        # Rename columns and process data
-        stock_data.rename(columns={'日期': 'date', '收盘': 'close', '开盘': 'open'}, inplace=True)
-        stock_data['date'] = pd.to_datetime(stock_data['date'])
-        stock_data.set_index('date', inplace=True)
-        stock_data.sort_index(inplace=True)
-        
-        # Calculate EMAs
+
         for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
             stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
-        
-        # Calculate average EMAs
+
         short_terms = [3, 5, 8, 10, 12, 15]
         long_terms = [30, 35, 40, 45, 50, 60]
         stock_data['avg_short_ema'] = stock_data[[f'EMA{period}' for period in short_terms]].mean(axis=1)
         stock_data['avg_long_ema'] = stock_data[[f'EMA{period}' for period in long_terms]].mean(axis=1)
-        
-        # Detect crossovers
+
         stock_data['short_above_long'] = stock_data['avg_short_ema'] > stock_data['avg_long_ema']
         stock_data['crossover'] = False
-        
-        # Find crossover points - FIX: Use loc[] instead of chained assignment
+
         for i in range(1, len(stock_data)):
             if not stock_data['short_above_long'].iloc[i-1] and stock_data['short_above_long'].iloc[i]:
-                # Replace: stock_data['crossover'].iloc[i] = True
                 stock_data.loc[stock_data.index[i], 'crossover'] = True
-        
-        # Check if there's a crossover in the last 'days_to_check' days
+
         recent_data = stock_data.iloc[-days_to_check:]
         has_crossover = recent_data['crossover'].any()
-        
+
         return has_crossover, stock_data if has_crossover else None
     except Exception as e:
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
+
+
+def display_scan_results(
+    crossover_stocks,
+    scan_mode,
+    selected_industries,
+    days_to_check,
+    partial=False,
+):
+    """Render scan results in a consistent way."""
+    if not crossover_stocks:
+        if partial:
+            st.warning("扫描提前终止，且在错误发生前未找到符合条件的股票。")
+        else:
+            st.warning(f"没有找到在最近 {days_to_check} 天内出现买入信号的股票。")
+        return
+
+    if scan_mode == "按行业板块":
+        scope = (
+            f"所选 {len(selected_industries)} 个行业"
+            if selected_industries
+            else "所选行业"
+        )
+    else:
+        scope = "全部 A 股"
+
+    prefix = "部分扫描完成，" if partial else ""
+    st.success(
+        f"{prefix}在{scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入信号的股票。"
+    )
+
+    summary_df = pd.DataFrame(
+        [(t, n, ind) for t, n, ind, _ in crossover_stocks],
+        columns=["代码", "名称", "所属行业"],
+    )
+    st.subheader("买入信号股票列表")
+    st.table(summary_df)
 
 # Add a caching mechanism for expensive API calls with local file support
 @st.cache_data(ttl=60)  # Cache data for 1 minute in Streamlit's cache
@@ -109,56 +306,14 @@ def fetch_industry_data():
                 cached_data = json.load(f)
             
             progress_text.empty()
+            cached_data.setdefault("industry_change_pct", {})
             return cached_data
         
         # If cache is invalid or doesn't exist, fetch fresh data
         progress_text = st.empty()
-        progress_text.text("正在从服务器获取行业数据...")
+        progress_text.text("正在从 Tushare 获取行业数据...")
         
-        # Get all industry names
-        industry_df = ak.stock_board_industry_name_em()
-        industry_list = industry_df["板块名称"].tolist()
-        
-        # Create dictionaries to store industry data
-        industry_stocks = {}  # Industry -> List of stocks
-        industry_counts = {}  # Industry -> Count of stocks
-        stock_to_industry = {}  # Stock code -> Industry
-        
-        # Get stock data for each industry
-        for i, industry in enumerate(industry_list):
-            progress_text.text(f"正在获取行业数据: {i+1}/{len(industry_list)} - {industry}")
-            try:
-                # Fetch stocks in this industry
-                industry_stocks_df = ak.stock_board_industry_cons_em(symbol=industry)
-                if not industry_stocks_df.empty:
-                    # Process stocks in this industry
-                    stocks_list = []
-                    for _, row in industry_stocks_df.iterrows():
-                        stock_code = row["代码"].split('.')[0].zfill(6)
-                        stock_name = row["名称"]
-                        stocks_list.append((stock_code, stock_name))
-                        # Map stock code to industry
-                        stock_to_industry[stock_code] = industry
-                    
-                    # Store data
-                    industry_stocks[industry] = stocks_list
-                    industry_counts[industry] = len(stocks_list)
-                else:
-                    industry_stocks[industry] = []
-                    industry_counts[industry] = 0
-            except Exception as e:
-                print(f"Error fetching stocks for {industry}: {str(e)}")
-                industry_stocks[industry] = []
-                industry_counts[industry] = 0
-        
-        # Prepare data structure for caching
-        industry_data = {
-            "industry_list": industry_list,
-            "industry_stocks": industry_stocks,
-            "industry_counts": industry_counts,
-            "stock_to_industry": stock_to_industry,
-            "fetch_date": datetime.now().strftime('%Y-%m-%d')
-        }
+        industry_data = build_industry_payload()
         
         # Save to a new cache file with current date
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -187,6 +342,7 @@ def fetch_industry_data():
             "industry_stocks": {},
             "industry_counts": {},
             "stock_to_industry": {},
+            "industry_change_pct": {},
             "fetch_date": datetime.now().strftime('%Y-%m-%d')
         }
 
@@ -215,18 +371,11 @@ if analysis_mode == "单一股票分析":
             if not ticker.isdigit() or len(ticker) != 6:
                 st.error("请输入有效的 6 位股票代码。")
             else:
-                # Fetch stock data using akshare
-                stock_data = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=start_date, end_date=end_date, adjust="")
+                ticker = normalize_symbol(ticker)
+                stock_data = fetch_daily_history(ticker, start_date, end_date)
                 if stock_data.empty:
                     st.error("未找到所输入股票代码的数据。请检查代码并重试。")
                 else:
-                    # Rename columns from Chinese to English
-                    stock_data.rename(columns={'日期': 'date', '收盘': 'close', '开盘': 'open'}, inplace=True)
-                    # Set 'date' as index and sort by date
-                    stock_data['date'] = pd.to_datetime(stock_data['date'])
-                    stock_data.set_index('date', inplace=True)
-                    stock_data.sort_index(inplace=True)
-                    
                     # Calculate Exponential Moving Averages (EMAs)
                     for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
                         stock_data[f"EMA{period}"] = stock_data["close"].ewm(span=period, adjust=False).mean()
@@ -251,13 +400,15 @@ if analysis_mode == "单一股票分析":
                     
                     # Create Plotly figure
                     fig = go.Figure()
+                    high_series = stock_data["high"] if "high" in stock_data else stock_data[["open", "close"]].max(axis=1)
+                    low_series = stock_data["low"] if "low" in stock_data else stock_data[["open", "close"]].min(axis=1)
                     
                     # Add candlestick chart
                     fig.add_trace(go.Candlestick(
                         x=stock_data.index,
                         open=stock_data["open"],
-                        high=stock_data[["open", "close"]].max(axis=1),
-                        low=stock_data[["open", "close"]].min(axis=1),
+                        high=high_series,
+                        low=low_series,
                         close=stock_data["close"],
                         increasing_line_color='green',
                         decreasing_line_color='red',
@@ -400,6 +551,7 @@ else:  # Auto scan mode
     
     selected_industry = None
     selected_industries = []  # Initialize with empty list to prevent NameError
+    industry_data = None
     
     # Industry board selection
     if scan_mode == "按行业板块":
@@ -411,10 +563,7 @@ else:  # Auto scan mode
                 industry_counts = industry_data["industry_counts"]
                 industry_stocks = industry_data["industry_stocks"]
                 
-                # Get fresh industry price change data directly from API
-                fresh_industry_df = ak.stock_board_industry_name_em()
-                industry_change_pct = {row["板块名称"]: row["涨跌幅"] 
-                                       for _, row in fresh_industry_df.iterrows()}
+                industry_change_pct = industry_data.get("industry_change_pct", {})
             
             # Remove loading message from sidebar
             st.sidebar.text("")
@@ -441,22 +590,12 @@ else:  # Auto scan mode
             # Create a mapping from formatted name back to original name
             industry_name_mapping = {option: ind for ind, option in zip(industry_list, industry_options)}
             
-            # Get fresh industry order directly from the API for sorting
-            try:
-                ordered_industry_list = fresh_industry_df["板块名称"].tolist()
-                
-                # Create a mapping for sorting based on the original order
-                industry_order = {ind: idx for idx, ind in enumerate(ordered_industry_list)}
-                
-                # Sort industry_options based on the original order
-                industry_options_sorted = sorted(
-                    industry_options,
-                    key=lambda x: industry_order.get(industry_name_mapping[x], float('inf'))
-                )
-            except Exception as e:
-                # Fallback to unsorted if API call fails
-                st.sidebar.warning(f"无法获取行业排序，将使用默认顺序: {str(e)}")
-                industry_options_sorted = industry_options
+            # Sort industries by intraday performance (descending)
+            industry_options_sorted = sorted(
+                industry_options,
+                key=lambda x: industry_change_pct.get(industry_name_mapping[x], float('-inf')),
+                reverse=True
+            )
             
             # Use the sorted options in the multiselect
             default_option = industry_options_sorted[0] if industry_options_sorted else None
@@ -476,8 +615,16 @@ else:  # Auto scan mode
                 st.sidebar.info(f"已选择: {industries_text}\n\n共计约 {total_stocks} 只股票")
         except Exception as e:
             st.sidebar.error(f"获取行业板块失败: {str(e)}")
+    else:
+        industry_data = fetch_industry_data()
+    
+    if industry_data is None:
+        industry_data = fetch_industry_data()
 
     if st.sidebar.button("开始扫描"):
+        crossover_stocks = []
+        stock_errors = []
+        progress_bar = None
         with st.spinner("正在扫描买入信号，这可能需要一些时间..."):
             try:
                 # Variable to track if we have valid stocks to scan
@@ -503,7 +650,7 @@ else:  # Auto scan mode
                         have_stocks_to_scan = False
                 else:
                     # Get all A-share stock codes and names
-                    stock_info_df = ak.stock_info_a_code_name()
+                    stock_info_df = load_stock_basic()[["code", "name"]].copy()
                 
                 # Only proceed if we have stocks to scan
                 if have_stocks_to_scan:
@@ -513,13 +660,6 @@ else:  # Auto scan mode
                     
                     # Create a progress bar
                     progress_bar = st.progress(0)
-                    
-                    # Container for results
-                    results_container = st.container()
-                    results_title = st.empty()
-                    
-                    # Counter for stocks with crossover
-                    crossover_stocks = []
                     
                     # Create industry mapping dictionary for multiple industry case
                     industry_mapping = {}
@@ -548,26 +688,19 @@ else:  # Auto scan mode
                            (exclude_4 and ticker.startswith('4')):
                             continue
                         
-                        # Check for crossover
-                        has_crossover, stock_data = has_recent_crossover(ticker, days_to_check)
-                        
-                        if has_crossover:
+                        try:
+                            # Check for crossover
+                            has_crossover, stock_data = has_recent_crossover(ticker, days_to_check)
+                            
+                            if not has_crossover:
+                                continue
+                            
                             # Get industry information for the stock
                             if scan_mode == "按行业板块":
                                 # Use the mapped industry from the cached data
                                 industry = industry_mapping.get(ticker, "未知")
                             else:
-                                # For all A-shares mode, try to get industry info
-                                try:
-                                    # First check if we have it in the cache
-                                    if ticker in industry_data["stock_to_industry"]:
-                                        industry = industry_data["stock_to_industry"][ticker]
-                                    else:
-                                        # If not cached, fetch it directly
-                                        stock_info = ak.stock_individual_info_em(symbol=ticker)
-                                        industry = stock_info.loc[stock_info['item'] == '所属行业', 'value'].iloc[0]
-                                except:
-                                    industry = "未知"
+                                industry = industry_data["stock_to_industry"].get(ticker, "未知")
                             
                             # Include industry in the crossover_stocks list
                             crossover_stocks.append((ticker, name, industry, stock_data))
@@ -576,13 +709,15 @@ else:  # Auto scan mode
                             with st.expander(f"{ticker} - {name} ({industry})", expanded=True):
                                 # Create GMMA chart
                                 fig = go.Figure()
+                                high_series = stock_data["high"] if "high" in stock_data else stock_data[["open", "close"]].max(axis=1)
+                                low_series = stock_data["low"] if "low" in stock_data else stock_data[["open", "close"]].min(axis=1)
                                 
                                 # Add candlestick chart
                                 fig.add_trace(go.Candlestick(
                                     x=stock_data.index,
                                     open=stock_data["open"],
-                                    high=stock_data[["open", "close"]].max(axis=1),
-                                    low=stock_data[["open", "close"]].min(axis=1),
+                                    high=high_series,
+                                    low=low_series,
                                     close=stock_data["close"],
                                     increasing_line_color='red',
                                     decreasing_line_color='green',
@@ -634,14 +769,6 @@ else:  # Auto scan mode
                                 crossover_dates = stock_data[stock_data['crossover']].index
                                 for date in crossover_dates:
                                     price_at_crossover = stock_data.loc[date, 'close']
-                                    # fig.add_shape(
-                                    #     type="line",
-                                    #     x0=date,
-                                    #     y0=price_at_crossover * 0.97,
-                                    #     x1=date,
-                                    #     y1=price_at_crossover * 1.03,
-                                    #     line=dict(color="orange", width=3),
-                                    # )
                                     fig.add_annotation(
                                         x=date,
                                         y=price_at_crossover * 1.04,
@@ -667,6 +794,9 @@ else:  # Auto scan mode
                                 
                                 # Display the plot
                                 st.plotly_chart(fig, use_container_width=True)
+                        except Exception as stock_exc:
+                            stock_errors.append((ticker, str(stock_exc)))
+                            continue
                         
                         # Check if we found enough stocks
                         if len(crossover_stocks) >= max_stocks:
@@ -675,23 +805,41 @@ else:  # Auto scan mode
                     # Final update
                     progress_bar.progress(1.0)
                     
-                    # Final message
-                    if len(crossover_stocks) == 0:
-                        st.warning(f"没有找到在最近 {days_to_check} 天内出现买入信号的股票。")
-                    else:
-                        scan_scope = f"所选 {len(selected_industries)} 个行业" if scan_mode == "按行业板块" else "全部 A 股"
-                        st.success(f"在{scan_scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入信号的股票。")
-                        
-                        # Create a summary table with industry information
-                        summary_df = pd.DataFrame(
-                            [(t, n, ind) for t, n, ind, _ in crossover_stocks], 
-                            columns=["代码", "名称", "所属行业"]
+                    display_scan_results(crossover_stocks, scan_mode, selected_industries, days_to_check)
+                    
+                    if stock_errors:
+                        example_errors = "; ".join(
+                            f"{code}: {msg.splitlines()[0]}"
+                            for code, msg in stock_errors[:3]
                         )
-                        st.subheader("买入信号股票列表")
-                        st.table(summary_df)
+                        st.warning(
+                            f"{len(stock_errors)} 只股票扫描失败，示例: {example_errors}"
+                        )
                 
             except Exception as e:
-                st.error(f"扫描过程中出错: {str(e)}")
+                if progress_bar is not None:
+                    progress_bar.progress(1.0)
+                
+                if crossover_stocks:
+                    st.warning(f"扫描过程中出错: {str(e)}。以下为部分结果。")
+                    display_scan_results(
+                        crossover_stocks,
+                        scan_mode,
+                        selected_industries,
+                        days_to_check,
+                        partial=True,
+                    )
+                else:
+                    st.error(f"扫描过程中出错: {str(e)}")
+                
+                if stock_errors:
+                    example_errors = "; ".join(
+                        f"{code}: {msg.splitlines()[0]}"
+                        for code, msg in stock_errors[:3]
+                    )
+                    st.warning(
+                        f"{len(stock_errors)} 只股票扫描失败，示例: {example_errors}"
+                    )
     else:
         if scan_mode == "按行业板块":
             if selected_industries:
