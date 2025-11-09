@@ -2,9 +2,14 @@
 
 # Core libraries
 streamlit>=1.8.0
-akshare>=1.16.39
 pandas>=1.4.0
 plotly>=5.6.0
+
+# Data providers
+akshare>=1.16.39
+tushare>=1.2.89  # Required by gmma_akshare for Tushare-based A-share data
+
+# Utility libraries
 numpy>=1.22.0
 tqdm>=4.64.0
 
