@@ -30,8 +30,24 @@ st.markdown("""
 # Tushare helpers
 # ---------------------------------------------------------------------------
 
+def _get_tushare_token_from_secrets() -> str | None:
+    """Read the Tushare token from Streamlit secrets when configured."""
+    secret_token = None
+    tushare_section = st.secrets.get("tushare")
+    if tushare_section and isinstance(tushare_section, Mapping):
+        secret_token = (
+            tushare_section.get("token")
+            or tushare_section.get("api_token")
+            or tushare_section.get("TUSHARE_TOKEN")
+        )
+    return secret_token or st.secrets.get("tushare_token") or st.secrets.get(
+        "TUSHARE_TOKEN"
+    )
+
+
 TUSHARE_TOKEN = (
-    os.getenv("TUSHARE_TOKEN")
+    _get_tushare_token_from_secrets()
+    or os.getenv("TUSHARE_TOKEN")
     or os.getenv("TS_TOKEN")
     or os.getenv("TUSHARE_PRO_TOKEN")
 )
