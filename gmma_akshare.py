@@ -61,6 +61,11 @@ STOCK_BASIC_CACHE_TTL = timedelta(days=7)
 AUTH_SESSION_KEY = "gmma_is_authenticated"
 AUTH_USER_KEY = "gmma_authenticated_user"
 LOGIN_FORM_KEY = "gmma_login_form"
+SCAN_RESULT_CACHE_FILES = {
+    "按行业板块": CACHE_DIR / "last_industry_scan.json",
+    "全部 A 股": CACHE_DIR / "last_all_scan.json",
+}
+MAX_PREVIOUS_RESULTS = 50
 
 
 def _get_auth_credentials():
@@ -480,6 +485,160 @@ def display_scan_results(
     st.table(summary_df)
 
 
+def _ensure_cache_dir_exists():
+    """Best-effort creation of the cache directory."""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+
+def _get_scan_cache_path(scan_mode: str) -> Path | None:
+    """Return the cache path for the given scan mode."""
+    path = SCAN_RESULT_CACHE_FILES.get(scan_mode)
+    if not path:
+        return None
+    _ensure_cache_dir_exists()
+    return path
+
+
+def save_scan_results_to_cache(
+    scan_mode: str,
+    selected_industries,
+    days_to_check: int,
+    crossover_stocks,
+    *,
+    partial: bool = False,
+    error_message: str | None = None,
+):
+    """Persist the latest scan summary so it can be rendered on future runs."""
+    path = _get_scan_cache_path(scan_mode)
+    if not path:
+        return
+
+    results_payload = []
+    for entry in crossover_stocks:
+        code = name = industry = ""
+        if isinstance(entry, Mapping):
+            code = entry.get("code", "")
+            name = entry.get("name", "")
+            industry = entry.get("industry", "")
+        elif isinstance(entry, (tuple, list)):
+            if len(entry) > 0:
+                code = entry[0]
+            if len(entry) > 1:
+                name = entry[1]
+            if len(entry) > 2:
+                industry = entry[2]
+        else:
+            continue
+
+        results_payload.append(
+            {
+                "code": str(code),
+                "name": str(name),
+                "industry": str(industry),
+            }
+        )
+
+    payload = {
+        "mode": scan_mode,
+        "timestamp": datetime.now().isoformat(),
+        "days_to_check": int(days_to_check),
+        "selected_industries": list(selected_industries or []),
+        "results": results_payload,
+        "partial": bool(partial),
+        "error": (error_message or "").strip() if error_message else "",
+    }
+
+    try:
+        with path.open("w", encoding="utf-8") as fp:
+            json.dump(payload, fp, ensure_ascii=False, indent=2)
+    except OSError as exc:
+        print(f"无法写入扫描缓存文件 {path}: {exc}")
+
+
+def load_previous_scan_results(scan_mode: str):
+    """Load the latest scan summary for the requested mode."""
+    path = _get_scan_cache_path(scan_mode)
+    if not path or not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as fp:
+            return json.load(fp)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"读取扫描缓存文件 {path} 失败: {exc}")
+        return None
+
+
+def _format_scan_timestamp(timestamp_str: str | None) -> str:
+    """Turn ISO timestamps into a human readable label."""
+    if not timestamp_str:
+        return ""
+    try:
+        ts = datetime.fromisoformat(timestamp_str)
+        return ts.strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return timestamp_str
+
+
+def render_previous_scan_card(scan_mode: str):
+    """Render the card that shows the previous scan result for a mode."""
+    st.markdown(f"**{scan_mode} 上次扫描**")
+    cached = load_previous_scan_results(scan_mode)
+    if not cached:
+        st.caption("暂无历史扫描记录。")
+        return
+
+    timestamp_label = _format_scan_timestamp(cached.get("timestamp"))
+    days = cached.get("days_to_check")
+    selected_industries = cached.get("selected_industries") or []
+    meta_parts = []
+    if timestamp_label:
+        meta_parts.append(f"运行时间: {timestamp_label}")
+    if days:
+        meta_parts.append(f"最近 {days} 天")
+    if scan_mode == "按行业板块" and selected_industries:
+        meta_parts.append(f"行业: {', '.join(selected_industries)}")
+
+    if meta_parts:
+        st.caption(" | ".join(meta_parts))
+
+    if cached.get("partial"):
+        st.warning("上次扫描未完整完成，结果可能不全。")
+    elif cached.get("error"):
+        st.info(f"上次扫描失败: {cached['error'].splitlines()[0]}")
+
+    results = cached.get("results", [])
+    if not results:
+        st.info("上次扫描没有找到符合条件的股票。")
+        return
+
+    df = pd.DataFrame(results)
+    if not df.empty:
+        df = df.rename(
+            columns={
+                "code": "代码",
+                "name": "名称",
+                "industry": "所属行业",
+            }
+        )
+        display_df = df.head(MAX_PREVIOUS_RESULTS)
+        st.table(display_df)
+        if len(df) > MAX_PREVIOUS_RESULTS:
+            st.caption(f"仅显示前 {MAX_PREVIOUS_RESULTS} 条，共 {len(df)} 条。")
+
+
+def render_previous_scan_section():
+    """Show cards for both scan modes on the main page."""
+    st.subheader("历史扫描结果")
+    col1, col2 = st.columns(2)
+    with col1:
+        render_previous_scan_card("按行业板块")
+    with col2:
+        render_previous_scan_card("全部 A 股")
+
+
 # Add a caching mechanism for expensive API calls with local file support
 @st.cache_data(ttl=60)  # Cache data for 1 minute in Streamlit's cache
 def fetch_industry_data():
@@ -886,227 +1045,268 @@ else:  # Auto scan mode
     if industry_data is None:
         industry_data = fetch_industry_data()
 
-    if st.sidebar.button("开始扫描"):
-        crossover_stocks = []
-        stock_errors = []
-        progress_bar = None
-        with st.spinner("正在扫描买入信号，这可能需要一些时间..."):
-            try:
-                # Variable to track if we have valid stocks to scan
-                have_stocks_to_scan = True
+    start_scan_clicked = st.sidebar.button("开始扫描")
 
-                # Get stock list based on scan mode
-                if scan_mode == "按行业板块" and selected_industries:
-                    # Create an empty DataFrame to store all industry stocks
-                    all_industry_stocks_list = []
+    results_tab, history_tab = st.tabs(["扫描结果", "历史扫描记录"])
 
-                    # Use cached data instead of making new API calls
-                    for industry in selected_industries:
-                        if industry in industry_stocks:
-                            all_industry_stocks_list.extend(industry_stocks[industry])
+    with history_tab:
+        render_previous_scan_section()
 
-                    if all_industry_stocks_list:
-                        # Convert to DataFrame
-                        stock_info_df = pd.DataFrame(
-                            all_industry_stocks_list, columns=["code", "name"]
-                        )
-                        # Remove duplicates
-                        stock_info_df = stock_info_df.drop_duplicates(subset=["code"])
-                    else:
-                        st.error("未能获取所选行业的股票列表。")
-                        have_stocks_to_scan = False
-                else:
-                    # Get all A-share stock codes and names
-                    stock_info_df = load_stock_basic()[["code", "name"]].copy()
+    with results_tab:
+        if start_scan_clicked:
+            crossover_stocks = []
+            stock_errors = []
+            progress_bar = None
+            scan_partial = False
+            scan_error_message = None
+            with st.spinner("正在扫描买入信号，这可能需要一些时间..."):
+                try:
+                    # Variable to track if we have valid stocks to scan
+                    have_stocks_to_scan = True
 
-                # Only proceed if we have stocks to scan
-                if have_stocks_to_scan:
-                    # Show how many stocks will be scanned
-                    stock_count = len(stock_info_df)
-                    st.info(f"准备扫描 {stock_count} 只股票...")
+                    # Get stock list based on scan mode
+                    if scan_mode == "按行业板块" and selected_industries:
+                        # Create an empty DataFrame to store all industry stocks
+                        all_industry_stocks_list = []
 
-                    # Create a progress bar
-                    progress_bar = st.progress(0)
+                        # Use cached data instead of making new API calls
+                        for industry in selected_industries:
+                            if industry in industry_stocks:
+                                all_industry_stocks_list.extend(
+                                    industry_stocks[industry]
+                                )
 
-                    # Create industry mapping dictionary for multiple industry case
-                    industry_mapping = {}
-
-                    # If in industry mode, map stock codes to their industries
-                    if scan_mode == "按行业板块":
-                        # Create industry mapping from the cached data
-                        industry_mapping = industry_data["stock_to_industry"]
-
-                    # Loop through selected stocks
-                    for i, row in enumerate(stock_info_df.itertuples()):
-                        # Update progress
-                        progress_bar.progress(min((i + 1) / stock_count, 1.0))
-
-                        ticker = row.code
-                        name = row.name
-
-                        # Skip stocks with special prefixes only if scanning all stocks
-                        if scan_mode == "全部 A 股" and ticker.startswith(
-                            ("688", "300", "8", "4")
-                        ):
-                            continue
-
-                        # Skip stocks based on filter settings
-                        if (
-                            (exclude_688 and ticker.startswith("688"))
-                            or (exclude_300 and ticker.startswith("300"))
-                            or (exclude_8 and ticker.startswith("8"))
-                            or (exclude_4 and ticker.startswith("4"))
-                        ):
-                            continue
-
-                        try:
-                            # Check for crossover
-                            has_crossover, stock_data = has_recent_crossover(
-                                ticker, days_to_check
+                        if all_industry_stocks_list:
+                            # Convert to DataFrame
+                            stock_info_df = pd.DataFrame(
+                                all_industry_stocks_list, columns=["code", "name"]
                             )
+                            # Remove duplicates
+                            stock_info_df = stock_info_df.drop_duplicates(
+                                subset=["code"]
+                            )
+                        else:
+                            st.error("未能获取所选行业的股票列表。")
+                            have_stocks_to_scan = False
+                    else:
+                        # Get all A-share stock codes and names
+                        stock_info_df = load_stock_basic()[["code", "name"]].copy()
 
-                            if not has_crossover:
+                    # Only proceed if we have stocks to scan
+                    if have_stocks_to_scan:
+                        # Show how many stocks will be scanned
+                        stock_count = len(stock_info_df)
+                        st.info(f"准备扫描 {stock_count} 只股票...")
+
+                        # Create a progress bar
+                        progress_bar = st.progress(0)
+
+                        # Create industry mapping dictionary for multiple industry case
+                        industry_mapping = {}
+
+                        # If in industry mode, map stock codes to their industries
+                        if scan_mode == "按行业板块":
+                            # Create industry mapping from the cached data
+                            industry_mapping = industry_data["stock_to_industry"]
+
+                        # Loop through selected stocks
+                        for i, row in enumerate(stock_info_df.itertuples()):
+                            # Update progress
+                            progress_bar.progress(min((i + 1) / stock_count, 1.0))
+
+                            ticker = row.code
+                            name = row.name
+
+                            # Skip stocks with special prefixes only if scanning all stocks
+                            if scan_mode == "全部 A 股" and ticker.startswith(
+                                ("688", "300", "8", "4")
+                            ):
                                 continue
 
-                            # Get industry information for the stock
-                            if scan_mode == "按行业板块":
-                                # Use the mapped industry from the cached data
-                                industry = industry_mapping.get(ticker, "未知")
-                            else:
-                                industry = industry_data["stock_to_industry"].get(
-                                    ticker, "未知"
+                            # Skip stocks based on filter settings
+                            if (
+                                (exclude_688 and ticker.startswith("688"))
+                                or (exclude_300 and ticker.startswith("300"))
+                                or (exclude_8 and ticker.startswith("8"))
+                                or (exclude_4 and ticker.startswith("4"))
+                            ):
+                                continue
+
+                            try:
+                                # Check for crossover
+                                has_crossover, stock_data = has_recent_crossover(
+                                    ticker, days_to_check
                                 )
 
-                            # Include industry in the crossover_stocks list
-                            crossover_stocks.append(
-                                (ticker, name, industry, stock_data)
+                                if not has_crossover:
+                                    continue
+
+                                # Get industry information for the stock
+                                if scan_mode == "按行业板块":
+                                    # Use the mapped industry from the cached data
+                                    industry = industry_mapping.get(ticker, "未知")
+                                else:
+                                    industry = industry_data["stock_to_industry"].get(
+                                        ticker, "未知"
+                                    )
+
+                                # Include industry in the crossover_stocks list
+                                crossover_stocks.append(
+                                    (ticker, name, industry, stock_data)
+                                )
+
+                                # Create tab for this stock
+                                with st.expander(
+                                    f"{ticker} - {name} ({industry})", expanded=True
+                                ):
+                                    # Create GMMA chart
+                                    fig = go.Figure()
+                                    high_series = (
+                                        stock_data["high"]
+                                        if "high" in stock_data
+                                        else stock_data[["open", "close"]].max(axis=1)
+                                    )
+                                    low_series = (
+                                        stock_data["low"]
+                                        if "low" in stock_data
+                                        else stock_data[["open", "close"]].min(axis=1)
+                                    )
+
+                                    # Add candlestick chart
+                                    fig.add_trace(
+                                        go.Candlestick(
+                                            x=stock_data.index,
+                                            open=stock_data["open"],
+                                            high=high_series,
+                                            low=low_series,
+                                            close=stock_data["close"],
+                                            increasing_line_color="red",
+                                            decreasing_line_color="green",
+                                            name="Price",
+                                        )
+                                    )
+
+                                    # Add short-term EMAs (blue)
+                                    for i, period in enumerate([3, 5, 8, 10, 12, 15]):
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=stock_data.index,
+                                                y=stock_data[f"EMA{period}"],
+                                                mode="lines",
+                                                name=f"EMA{period}",
+                                                line=dict(color="blue", width=1),
+                                                legendgroup="short_term",
+                                                showlegend=(i == 0),
+                                            )
+                                        )
+
+                                    # Add long-term EMAs (red)
+                                    for i, period in enumerate([30, 35, 40, 45, 50, 60]):
+                                        fig.add_trace(
+                                            go.Scatter(
+                                                x=stock_data.index,
+                                                y=stock_data[f"EMA{period}"],
+                                                mode="lines",
+                                                name=f"EMA{period}",
+                                                line=dict(color="red", width=1),
+                                                legendgroup="long_term",
+                                                showlegend=(i == 0),
+                                            )
+                                        )
+
+                                    # Add average EMAs
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=stock_data.index,
+                                            y=stock_data["avg_short_ema"],
+                                            mode="lines",
+                                            name="Avg Short-term EMAs",
+                                            line=dict(color="blue", width=2, dash="dot"),
+                                        )
+                                    )
+
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=stock_data.index,
+                                            y=stock_data["avg_long_ema"],
+                                            mode="lines",
+                                            name="Avg Long-term EMAs",
+                                            line=dict(color="red", width=2, dash="dot"),
+                                        )
+                                    )
+
+                                    # Mark crossover signals
+                                    crossover_dates = stock_data[
+                                        stock_data["crossover"]
+                                    ].index
+                                    for date in crossover_dates:
+                                        price_at_crossover = stock_data.loc[date, "close"]
+                                        fig.add_annotation(
+                                            x=date,
+                                            y=price_at_crossover * 1.04,
+                                            text="买入信号",
+                                            showarrow=True,
+                                            arrowhead=1,
+                                            arrowcolor="green",
+                                            arrowsize=1,
+                                            arrowwidth=2,
+                                            font=dict(color="green", size=12),
+                                        )
+
+                                    # Layout
+                                    fig.update_layout(
+                                        title=f"{ticker} - {name} GMMA 图表",
+                                        xaxis_title="日期",
+                                        yaxis_title="价格",
+                                        legend_title="图例",
+                                        hovermode="x unified",
+                                        template="plotly_white",
+                                        height=500,
+                                    )
+
+                                    # Display the plot
+                                    st.plotly_chart(fig, use_container_width=True)
+                            except Exception as stock_exc:
+                                stock_errors.append((ticker, str(stock_exc)))
+                                continue
+
+                            # Check if we found enough stocks
+                            if len(crossover_stocks) >= max_stocks:
+                                break
+
+                        # Final update
+                        progress_bar.progress(1.0)
+
+                        display_scan_results(
+                            crossover_stocks, scan_mode, selected_industries, days_to_check
+                        )
+
+                        if stock_errors:
+                            example_errors = "; ".join(
+                                f"{code}: {msg.splitlines()[0]}"
+                                for code, msg in stock_errors[:3]
+                            )
+                            st.warning(
+                                f"{len(stock_errors)} 只股票扫描失败，示例: {example_errors}"
                             )
 
-                            # Create tab for this stock
-                            with st.expander(
-                                f"{ticker} - {name} ({industry})", expanded=True
-                            ):
-                                # Create GMMA chart
-                                fig = go.Figure()
-                                high_series = (
-                                    stock_data["high"]
-                                    if "high" in stock_data
-                                    else stock_data[["open", "close"]].max(axis=1)
-                                )
-                                low_series = (
-                                    stock_data["low"]
-                                    if "low" in stock_data
-                                    else stock_data[["open", "close"]].min(axis=1)
-                                )
+                except Exception as e:
+                    scan_error_message = str(e)
+                    if progress_bar is not None:
+                        progress_bar.progress(1.0)
 
-                                # Add candlestick chart
-                                fig.add_trace(
-                                    go.Candlestick(
-                                        x=stock_data.index,
-                                        open=stock_data["open"],
-                                        high=high_series,
-                                        low=low_series,
-                                        close=stock_data["close"],
-                                        increasing_line_color="red",
-                                        decreasing_line_color="green",
-                                        name="Price",
-                                    )
-                                )
-
-                                # Add short-term EMAs (blue)
-                                for i, period in enumerate([3, 5, 8, 10, 12, 15]):
-                                    fig.add_trace(
-                                        go.Scatter(
-                                            x=stock_data.index,
-                                            y=stock_data[f"EMA{period}"],
-                                            mode="lines",
-                                            name=f"EMA{period}",
-                                            line=dict(color="blue", width=1),
-                                            legendgroup="short_term",
-                                            showlegend=(i == 0),
-                                        )
-                                    )
-
-                                # Add long-term EMAs (red)
-                                for i, period in enumerate([30, 35, 40, 45, 50, 60]):
-                                    fig.add_trace(
-                                        go.Scatter(
-                                            x=stock_data.index,
-                                            y=stock_data[f"EMA{period}"],
-                                            mode="lines",
-                                            name=f"EMA{period}",
-                                            line=dict(color="red", width=1),
-                                            legendgroup="long_term",
-                                            showlegend=(i == 0),
-                                        )
-                                    )
-
-                                # Add average EMAs
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=stock_data.index,
-                                        y=stock_data["avg_short_ema"],
-                                        mode="lines",
-                                        name="Avg Short-term EMAs",
-                                        line=dict(color="blue", width=2, dash="dot"),
-                                    )
-                                )
-
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=stock_data.index,
-                                        y=stock_data["avg_long_ema"],
-                                        mode="lines",
-                                        name="Avg Long-term EMAs",
-                                        line=dict(color="red", width=2, dash="dot"),
-                                    )
-                                )
-
-                                # Mark crossover signals
-                                crossover_dates = stock_data[
-                                    stock_data["crossover"]
-                                ].index
-                                for date in crossover_dates:
-                                    price_at_crossover = stock_data.loc[date, "close"]
-                                    fig.add_annotation(
-                                        x=date,
-                                        y=price_at_crossover * 1.04,
-                                        text="买入信号",
-                                        showarrow=True,
-                                        arrowhead=1,
-                                        arrowcolor="green",
-                                        arrowsize=1,
-                                        arrowwidth=2,
-                                        font=dict(color="green", size=12),
-                                    )
-
-                                # Layout
-                                fig.update_layout(
-                                    title=f"{ticker} - {name} GMMA 图表",
-                                    xaxis_title="日期",
-                                    yaxis_title="价格",
-                                    legend_title="图例",
-                                    hovermode="x unified",
-                                    template="plotly_white",
-                                    height=500,
-                                )
-
-                                # Display the plot
-                                st.plotly_chart(fig, use_container_width=True)
-                        except Exception as stock_exc:
-                            stock_errors.append((ticker, str(stock_exc)))
-                            continue
-
-                        # Check if we found enough stocks
-                        if len(crossover_stocks) >= max_stocks:
-                            break
-
-                    # Final update
-                    progress_bar.progress(1.0)
-
-                    display_scan_results(
-                        crossover_stocks, scan_mode, selected_industries, days_to_check
-                    )
+                    if crossover_stocks:
+                        scan_partial = True
+                        st.warning(f"扫描过程中出错: {str(e)}。以下为部分结果。")
+                        display_scan_results(
+                            crossover_stocks,
+                            scan_mode,
+                            selected_industries,
+                            days_to_check,
+                            partial=True,
+                        )
+                    else:
+                        st.error(f"扫描过程中出错: {str(e)}")
 
                     if stock_errors:
                         example_errors = "; ".join(
@@ -1116,47 +1316,31 @@ else:  # Auto scan mode
                         st.warning(
                             f"{len(stock_errors)} 只股票扫描失败，示例: {example_errors}"
                         )
-
-            except Exception as e:
-                if progress_bar is not None:
-                    progress_bar.progress(1.0)
-
-                if crossover_stocks:
-                    st.warning(f"扫描过程中出错: {str(e)}。以下为部分结果。")
-                    display_scan_results(
-                        crossover_stocks,
+                finally:
+                    save_scan_results_to_cache(
                         scan_mode,
-                        selected_industries,
+                        selected_industries if scan_mode == "按行业板块" else [],
                         days_to_check,
-                        partial=True,
+                        crossover_stocks,
+                        partial=scan_partial,
+                        error_message=scan_error_message,
+                    )
+        else:
+            if scan_mode == "按行业板块":
+                if selected_industries:
+                    industry_count = len(selected_industries)
+                    total_stocks = sum(
+                        industry_counts.get(ind, 0) for ind in selected_industries
+                    )
+                    industries_text = (
+                        f"{industry_count} 个行业 (约 {total_stocks} 只股票)"
+                        if industry_count > 1
+                        else f"{selected_industries[0]} (约 {industry_counts.get(selected_industries[0], 0)} 只股票)"
+                    )
+                    st.info(
+                        f"请点击'开始扫描'按钮以查找 {industries_text} 中最近出现买入信号的股票。"
                     )
                 else:
-                    st.error(f"扫描过程中出错: {str(e)}")
-
-                if stock_errors:
-                    example_errors = "; ".join(
-                        f"{code}: {msg.splitlines()[0]}"
-                        for code, msg in stock_errors[:3]
-                    )
-                    st.warning(
-                        f"{len(stock_errors)} 只股票扫描失败，示例: {example_errors}"
-                    )
-    else:
-        if scan_mode == "按行业板块":
-            if selected_industries:
-                industry_count = len(selected_industries)
-                total_stocks = sum(
-                    industry_counts.get(ind, 0) for ind in selected_industries
-                )
-                industries_text = (
-                    f"{industry_count} 个行业 (约 {total_stocks} 只股票)"
-                    if industry_count > 1
-                    else f"{selected_industries[0]} (约 {industry_counts.get(selected_industries[0], 0)} 只股票)"
-                )
-                st.info(
-                    f"请点击'开始扫描'按钮以查找 {industries_text} 中最近出现买入信号的股票。"
-                )
+                    st.info("请先选择至少一个行业板块，然后点击'开始扫描'按钮。")
             else:
-                st.info("请先选择至少一个行业板块，然后点击'开始扫描'按钮。")
-        else:
-            st.info("请点击'开始扫描'按钮以查找最近出现买入信号的股票。")
+                st.info("请点击'开始扫描'按钮以查找最近出现买入信号的股票。")
