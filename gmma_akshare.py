@@ -100,8 +100,6 @@ def _trigger_rerun():
 def ensure_authenticated():
     """Render a login form and block the app until authentication succeeds."""
     stored_username, stored_password = _get_auth_credentials()
-    print(stored_username)
-    print(stored_password)
     if not stored_username or not stored_password:
         st.error("请在 st.secrets 中配置 auth.username 和 auth.password。")
         st.stop()
@@ -1061,7 +1059,7 @@ if analysis_mode == "单一股票分析":
                         price_at_signal = stock_data.loc[date, "close"]
                         fig.add_annotation(
                             x=date,
-                            y=price_at_signal * 0.96,
+                            y=price_at_signal * 0.92,
                             text="卖出信号",
                             showarrow=True,
                             arrowhead=1,
@@ -1069,6 +1067,8 @@ if analysis_mode == "单一股票分析":
                             arrowsize=1,
                             arrowwidth=2,
                             font=dict(color="red", size=12),
+                            ax=0,
+                            ay=40,
                         )
 
                     buy_count = len(buy_signal_dates)
@@ -1516,7 +1516,7 @@ else:  # Auto scan mode
                                         price_at_signal = stock_data.loc[date, "close"]
                                         fig.add_annotation(
                                             x=date,
-                                            y=price_at_signal * 0.96,
+                                            y=price_at_signal * 0.92,
                                             text="卖出信号",
                                             showarrow=True,
                                             arrowhead=1,
@@ -1524,6 +1524,8 @@ else:  # Auto scan mode
                                             arrowsize=1,
                                             arrowwidth=2,
                                             font=dict(color="red", size=12),
+                                            ax=0,
+                                            ay=40,
                                         )
 
                                     history_label = (
