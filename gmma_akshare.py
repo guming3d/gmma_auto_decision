@@ -66,6 +66,10 @@ SCAN_RESULT_CACHE_FILES = {
     "全部 A 股": CACHE_DIR / "last_all_scan.json",
 }
 MAX_PREVIOUS_RESULTS = 50
+DEFAULT_HISTORY_DAYS = 365
+EMA_WARMUP_DAYS = 60
+SELL_SIGNAL_EMA = 8
+BACKTEST_INITIAL_CASH = 100_000
 
 
 def _get_auth_credentials():
@@ -349,6 +353,176 @@ def fetch_daily_history(ticker: str, start_date: str, end_date: str) -> pd.DataF
     return df
 
 
+def load_stock_history_with_signals(
+    ticker: str,
+    *,
+    history_days: int = DEFAULT_HISTORY_DAYS,
+    sell_ema_period: int = SELL_SIGNAL_EMA,
+) -> pd.DataFrame:
+    """Load historical data with GMMA indicators and trading signals."""
+    ticker = normalize_symbol(ticker)
+    today = datetime.today()
+    end_str = today.strftime("%Y%m%d")
+    start_str = (today - timedelta(days=history_days + EMA_WARMUP_DAYS)).strftime(
+        "%Y%m%d"
+    )
+    stock_data = fetch_daily_history(ticker, start_str, end_str)
+    if stock_data is None or stock_data.empty:
+        return pd.DataFrame()
+
+    stock_data = stock_data.copy()
+    ema_periods = [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]
+    for period in ema_periods:
+        stock_data[f"EMA{period}"] = (
+            stock_data["close"].ewm(span=period, adjust=False).mean()
+        )
+
+    short_terms = [3, 5, 8, 10, 12, 15]
+    long_terms = [30, 35, 40, 45, 50, 60]
+    stock_data["avg_short_ema"] = stock_data[
+        [f"EMA{period}" for period in short_terms]
+    ].mean(axis=1)
+    stock_data["avg_long_ema"] = stock_data[
+        [f"EMA{period}" for period in long_terms]
+    ].mean(axis=1)
+    stock_data["short_above_long"] = (
+        stock_data["avg_short_ema"] > stock_data["avg_long_ema"]
+    )
+    stock_data["buy_signal"] = False
+    stock_data["sell_signal"] = False
+    stock_data["crossover"] = False
+
+    ema_column = f"EMA{sell_ema_period}"
+    if ema_column not in stock_data.columns:
+        ema_column = "EMA8" if "EMA8" in stock_data.columns else ema_column
+
+    in_position = False
+    for i in range(1, len(stock_data)):
+        prev_idx = stock_data.index[i - 1]
+        curr_idx = stock_data.index[i]
+        prev_state = bool(stock_data.at[prev_idx, "short_above_long"])
+        curr_state = bool(stock_data.at[curr_idx, "short_above_long"])
+
+        if not prev_state and curr_state:
+            stock_data.at[curr_idx, "buy_signal"] = True
+            stock_data.at[curr_idx, "crossover"] = True
+            in_position = True
+        elif (
+            in_position
+            and ema_column in stock_data.columns
+            and stock_data.at[curr_idx, "close"] < stock_data.at[curr_idx, ema_column]
+        ):
+            stock_data.at[curr_idx, "sell_signal"] = True
+            in_position = False
+
+    display_cutoff = today - timedelta(days=history_days)
+    stock_data = stock_data[stock_data.index >= display_cutoff]
+    return stock_data
+
+
+def perform_back_testing(
+    stock_data: pd.DataFrame, initial_cash: int = BACKTEST_INITIAL_CASH
+) -> dict:
+    """Run a simple back test based on the computed buy/sell signals."""
+    if stock_data is None or stock_data.empty:
+        return {
+            "initial_cash": initial_cash,
+            "final_cash": initial_cash,
+            "final_position": 0,
+            "final_position_value": 0.0,
+            "final_value": float(initial_cash),
+            "signal_return_pct": 0.0,
+            "buy_hold_units": 0,
+            "buy_hold_value": float(initial_cash),
+            "buy_hold_return_pct": 0.0,
+            "trades": [],
+        }
+
+    stock_data = stock_data.sort_index()
+    cash = float(initial_cash)
+    position = 0
+    trades: list[dict] = []
+    last_buy_price = None
+
+    for date, row in stock_data.iterrows():
+        price = float(row["close"])
+        if price <= 0:
+            continue
+
+        if bool(row.get("buy_signal", False)) and cash > 0 and position == 0:
+            max_units = int(cash // price)
+            if max_units <= 0:
+                continue
+            cost = price * max_units
+            cash -= cost
+            position += max_units
+            last_buy_price = price
+            trades.append(
+                {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "action": "买入",
+                    "price": price,
+                    "units": max_units,
+                    "cash": cash,
+                    "position_value": position * price,
+                    "total_value": cash + position * price,
+                }
+            )
+        elif bool(row.get("sell_signal", False)) and position > 0:
+            proceeds = price * position
+            cash += proceeds
+            gain_loss = 0.0
+            gain_loss_pct = 0.0
+            if last_buy_price and last_buy_price > 0:
+                gain_loss = (price - last_buy_price) * position
+                gain_loss_pct = ((price / last_buy_price) - 1) * 100
+            trades.append(
+                {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "action": "卖出",
+                    "price": price,
+                    "units": position,
+                    "proceeds": proceeds,
+                    "gain_loss": gain_loss,
+                    "gain_loss_pct": gain_loss_pct,
+                    "cash": cash,
+                    "position_value": 0.0,
+                    "total_value": cash,
+                }
+            )
+            position = 0
+            last_buy_price = None
+
+    final_price = float(stock_data["close"].iloc[-1])
+    final_position_value = position * final_price
+    final_value = cash + final_position_value
+
+    first_price = float(stock_data["close"].iloc[0])
+    if first_price > 0:
+        buy_hold_units = int(initial_cash // first_price)
+        remaining_cash = initial_cash - buy_hold_units * first_price
+        buy_hold_value = buy_hold_units * final_price + remaining_cash
+    else:
+        buy_hold_units = 0
+        buy_hold_value = float(initial_cash)
+
+    signal_return_pct = ((final_value - initial_cash) / initial_cash) * 100
+    buy_hold_return_pct = ((buy_hold_value - initial_cash) / initial_cash) * 100
+
+    return {
+        "initial_cash": initial_cash,
+        "final_cash": cash,
+        "final_position": position,
+        "final_position_value": final_position_value,
+        "final_value": final_value,
+        "signal_return_pct": signal_return_pct,
+        "buy_hold_units": buy_hold_units,
+        "buy_hold_value": buy_hold_value,
+        "buy_hold_return_pct": buy_hold_return_pct,
+        "trades": trades,
+    }
+
+
 def compute_industry_change(stock_df: pd.DataFrame) -> dict:
     """Compute latest industry percentage change based on constituent stocks."""
     try:
@@ -365,11 +539,14 @@ def compute_industry_change(stock_df: pd.DataFrame) -> dict:
             on="ts_code",
             how="left",
         )
+        merged["pct_chg"] = pd.to_numeric(merged["pct_chg"], errors="coerce")
         merged = merged.dropna(subset=["industry", "pct_chg"])
         if merged.empty:
             return {}
-        grouped = merged.groupby("industry")["pct_chg"].mean()
-        return {industry: float(value) for industry, value in grouped.items()}
+        grouped = merged.groupby("industry")["pct_chg"].mean().dropna()
+        return {
+            industry: round(float(value), 4) for industry, value in grouped.items()
+        }
     except Exception as exc:
         print(f"Failed to compute industry change: {exc}")
         return {}
@@ -406,43 +583,15 @@ def build_industry_payload():
 # Function to check if a stock has a recent crossover
 def has_recent_crossover(ticker, days_to_check=3):
     try:
-        ticker = normalize_symbol(ticker)
-        end_date = datetime.today().strftime("%Y%m%d")
-        start_date = (datetime.today() - timedelta(days=120)).strftime("%Y%m%d")
-        stock_data = fetch_daily_history(ticker, start_date, end_date)
+        stock_data = load_stock_history_with_signals(ticker)
         if stock_data.empty:
             return False, None
 
-        for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
-            stock_data[f"EMA{period}"] = (
-                stock_data["close"].ewm(span=period, adjust=False).mean()
-            )
+        lookback = max(int(days_to_check or 0), 1)
+        recent_data = stock_data.iloc[-lookback:]
+        has_signal = recent_data["buy_signal"].any() or recent_data["sell_signal"].any()
 
-        short_terms = [3, 5, 8, 10, 12, 15]
-        long_terms = [30, 35, 40, 45, 50, 60]
-        stock_data["avg_short_ema"] = stock_data[
-            [f"EMA{period}" for period in short_terms]
-        ].mean(axis=1)
-        stock_data["avg_long_ema"] = stock_data[
-            [f"EMA{period}" for period in long_terms]
-        ].mean(axis=1)
-
-        stock_data["short_above_long"] = (
-            stock_data["avg_short_ema"] > stock_data["avg_long_ema"]
-        )
-        stock_data["crossover"] = False
-
-        for i in range(1, len(stock_data)):
-            if (
-                not stock_data["short_above_long"].iloc[i - 1]
-                and stock_data["short_above_long"].iloc[i]
-            ):
-                stock_data.loc[stock_data.index[i], "crossover"] = True
-
-        recent_data = stock_data.iloc[-days_to_check:]
-        has_crossover = recent_data["crossover"].any()
-
-        return has_crossover, stock_data if has_crossover else None
+        return has_signal, stock_data if has_signal else None
     except Exception as e:
         print(f"Error checking {ticker}: {str(e)}")
         return False, None
@@ -460,7 +609,9 @@ def display_scan_results(
         if partial:
             st.warning("扫描提前终止，且在错误发生前未找到符合条件的股票。")
         else:
-            st.warning(f"没有找到在最近 {days_to_check} 天内出现买入信号的股票。")
+            st.warning(
+                f"没有找到在最近 {days_to_check} 天内出现买入或卖出信号的股票。"
+            )
         return
 
     if scan_mode == "按行业板块":
@@ -474,14 +625,35 @@ def display_scan_results(
 
     prefix = "部分扫描完成，" if partial else ""
     st.success(
-        f"{prefix}在{scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入信号的股票。"
+        f"{prefix}在{scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入或卖出信号的股票。"
     )
 
+    summary_rows = []
+    for ticker, name, industry, stock_df in crossover_stocks:
+        latest_type = ""
+        latest_date_str = ""
+        latest_price = ""
+        if isinstance(stock_df, pd.DataFrame) and not stock_df.empty:
+            signal_mask = stock_df["buy_signal"] | stock_df["sell_signal"]
+            signals = stock_df.loc[signal_mask, ["buy_signal", "sell_signal", "close"]]
+            if not signals.empty:
+                last_idx = signals.index[-1]
+                if bool(signals.iloc[-1]["sell_signal"]):
+                    latest_type = "卖出"
+                elif bool(signals.iloc[-1]["buy_signal"]):
+                    latest_type = "买入"
+                latest_date_str = last_idx.strftime("%Y-%m-%d")
+                latest_price = f"{float(signals.iloc[-1]['close']):.2f}"
+
+        summary_rows.append(
+            (ticker, name, industry, latest_type, latest_date_str, latest_price)
+        )
+
     summary_df = pd.DataFrame(
-        [(t, n, ind) for t, n, ind, _ in crossover_stocks],
-        columns=["代码", "名称", "所属行业"],
+        summary_rows,
+        columns=["代码", "名称", "所属行业", "最新信号", "信号日期", "信号价"],
     )
-    st.subheader("买入信号股票列表")
+    st.subheader("信号股票列表")
     st.table(summary_df)
 
 
@@ -683,6 +855,39 @@ def fetch_industry_data():
 
             progress_text.empty()
             cached_data.setdefault("industry_change_pct", {})
+
+            change_map = cached_data.get("industry_change_pct")
+            need_refresh = False
+            numeric_values = []
+            if isinstance(change_map, dict):
+                for value in change_map.values():
+                    try:
+                        numeric_value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if pd.notna(numeric_value):
+                        numeric_values.append(numeric_value)
+                if not numeric_values or all(abs(val) < 1e-6 for val in numeric_values):
+                    need_refresh = True
+            else:
+                need_refresh = True
+
+            fetch_date_str = cached_data.get("fetch_date")
+            if fetch_date_str:
+                try:
+                    fetch_date = datetime.strptime(fetch_date_str, "%Y-%m-%d").date()
+                    if fetch_date < datetime.today().date():
+                        need_refresh = True
+                except ValueError:
+                    need_refresh = True
+            else:
+                need_refresh = True
+
+            if need_refresh:
+                refreshed_change = compute_industry_change(load_stock_basic())
+                if refreshed_change:
+                    cached_data["industry_change_pct"] = refreshed_change
+                    cached_data["fetch_date"] = datetime.now().strftime("%Y-%m-%d")
             return cached_data
 
         # If cache is invalid or doesn't exist, fetch fresh data
@@ -740,9 +945,7 @@ if analysis_mode == "单一股票分析":
     show_short_term = st.sidebar.checkbox("显示短期 EMA", value=True)
     show_long_term = st.sidebar.checkbox("显示长期 EMA", value=True)
 
-    # Calculate date range for the past 6 months
-    end_date = datetime.today().strftime("%Y%m%d")
-    start_date = (datetime.today() - timedelta(days=180)).strftime("%Y%m%d")
+    history_days = DEFAULT_HISTORY_DAYS
 
     # Fetch and process stock data
     with st.spinner("获取数据中..."):
@@ -753,43 +956,12 @@ if analysis_mode == "单一股票分析":
                 st.error("请输入有效的 6 位股票代码。")
             else:
                 ticker = normalize_symbol(ticker)
-                stock_data = fetch_daily_history(ticker, start_date, end_date)
+                stock_data = load_stock_history_with_signals(
+                    ticker, history_days=history_days
+                )
                 if stock_data.empty:
                     st.error("未找到所输入股票代码的数据。请检查代码并重试。")
                 else:
-                    # Calculate Exponential Moving Averages (EMAs)
-                    for period in [3, 5, 8, 10, 12, 15, 30, 35, 40, 45, 50, 60]:
-                        stock_data[f"EMA{period}"] = (
-                            stock_data["close"].ewm(span=period, adjust=False).mean()
-                        )
-
-                    # Define short-term and long-term EMAs
-                    short_terms = [3, 5, 8, 10, 12, 15]
-                    long_terms = [30, 35, 40, 45, 50, 60]
-
-                    # Calculate average of short-term and long-term EMAs for each day
-                    stock_data["avg_short_ema"] = stock_data[
-                        [f"EMA{period}" for period in short_terms]
-                    ].mean(axis=1)
-                    stock_data["avg_long_ema"] = stock_data[
-                        [f"EMA{period}" for period in long_terms]
-                    ].mean(axis=1)
-
-                    # Detect crossovers (short-term crossing above long-term)
-                    stock_data["short_above_long"] = (
-                        stock_data["avg_short_ema"] > stock_data["avg_long_ema"]
-                    )
-                    stock_data["crossover"] = False
-
-                    # Find the exact crossover points (when short_above_long changes from False to True)
-                    for i in range(1, len(stock_data)):
-                        if (
-                            not stock_data["short_above_long"].iloc[i - 1]
-                            and stock_data["short_above_long"].iloc[i]
-                        ):
-                            # Replace: stock_data['crossover'].iloc[i] = True
-                            stock_data.loc[stock_data.index[i], "crossover"] = True
-
                     # Create Plotly figure
                     fig = go.Figure()
                     high_series = (
@@ -868,23 +1040,14 @@ if analysis_mode == "单一股票分析":
                         )
                     )
 
-                    # Mark crossover signals on the chart
-                    crossover_dates = stock_data[stock_data["crossover"]].index
-                    for date in crossover_dates:
-                        price_at_crossover = stock_data.loc[date, "close"]
-                        # Add vertical line at crossover
-                        fig.add_shape(
-                            type="line",
-                            x0=date,
-                            y0=price_at_crossover * 0.97,
-                            x1=date,
-                            y1=price_at_crossover * 1.03,
-                            line=dict(color="green", width=3),
-                        )
-                        # Add annotation
+                    buy_signal_dates = stock_data[stock_data["buy_signal"]].index
+                    sell_signal_dates = stock_data[stock_data["sell_signal"]].index
+
+                    for date in buy_signal_dates:
+                        price_at_signal = stock_data.loc[date, "close"]
                         fig.add_annotation(
                             x=date,
-                            y=price_at_crossover * 1.04,
+                            y=price_at_signal * 1.04,
                             text="买入信号",
                             showarrow=True,
                             arrowhead=1,
@@ -894,32 +1057,50 @@ if analysis_mode == "单一股票分析":
                             font=dict(color="green", size=12),
                         )
 
-                    # Count and display the number of signals
-                    signal_count = len(crossover_dates)
-                    if signal_count > 0:
-                        last_signal = (
-                            crossover_dates[-1].strftime("%Y-%m-%d")
-                            if signal_count > 0
-                            else "None"
+                    for date in sell_signal_dates:
+                        price_at_signal = stock_data.loc[date, "close"]
+                        fig.add_annotation(
+                            x=date,
+                            y=price_at_signal * 0.96,
+                            text="卖出信号",
+                            showarrow=True,
+                            arrowhead=1,
+                            arrowcolor="red",
+                            arrowsize=1,
+                            arrowwidth=2,
+                            font=dict(color="red", size=12),
                         )
-                        signal_info = f"**买入信号**: 共 {signal_count} 个, 最近信号日期: {last_signal}"
+
+                    buy_count = len(buy_signal_dates)
+                    sell_count = len(sell_signal_dates)
+                    if buy_count or sell_count:
+                        info_parts = []
+                        if buy_count:
+                            info_parts.append(
+                                f"买入 {buy_count} 次，最近 {buy_signal_dates[-1].strftime('%Y-%m-%d')}"
+                            )
+                        if sell_count:
+                            info_parts.append(
+                                f"卖出 {sell_count} 次，最近 {sell_signal_dates[-1].strftime('%Y-%m-%d')}"
+                            )
                         fig.add_annotation(
                             x=0.02,
                             y=0.98,
                             xref="paper",
                             yref="paper",
-                            text=signal_info,
+                            text="；".join(info_parts),
                             showarrow=False,
-                            font=dict(size=14, color="green"),
+                            font=dict(size=13, color="black"),
                             bgcolor="white",
-                            bordercolor="green",
+                            bordercolor="gray",
                             borderwidth=1,
                             align="left",
                         )
 
                     # Customize plot layout
+                    history_label = "1 年" if history_days >= 365 else f"{history_days} 天"
                     fig.update_layout(
-                        title=f"股票 {ticker} GMMA 图表 (标记: 短期EMA从下方穿过长期EMA)",
+                        title=f"股票 {ticker} GMMA 图表 (默认显示最近 {history_label})",
                         xaxis_title="日期",
                         yaxis_title="价格",
                         legend_title="图例",
@@ -930,12 +1111,89 @@ if analysis_mode == "单一股票分析":
                     # Display the plot in Streamlit
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # Display crossover days in a table
-                    if len(crossover_dates) > 0:
-                        st.subheader("买入信号日期")
-                        signal_df = pd.DataFrame(crossover_dates, columns=["日期"])
-                        signal_df["日期"] = signal_df["日期"].dt.strftime("%Y-%m-%d")
+                    signals = []
+                    for date in buy_signal_dates:
+                        signals.append(
+                            {
+                                "日期": date.strftime("%Y-%m-%d"),
+                                "信号": "买入",
+                                "收盘价": round(float(stock_data.loc[date, "close"]), 2),
+                            }
+                        )
+                    for date in sell_signal_dates:
+                        signals.append(
+                            {
+                                "日期": date.strftime("%Y-%m-%d"),
+                                "信号": "卖出",
+                                "收盘价": round(float(stock_data.loc[date, "close"]), 2),
+                            }
+                        )
+                    if signals:
+                        st.subheader("信号日期")
+                        signal_df = pd.DataFrame(signals).sort_values("日期")
                         st.table(signal_df)
+                    else:
+                        st.info("最近一年内未检测到买入或卖出信号。")
+
+                    backtest_results = perform_back_testing(stock_data)
+                    st.subheader("回测表现 (初始资金 ¥100,000)")
+                    col1, col2, col3 = st.columns(3)
+                    delta_pct = (
+                        backtest_results["signal_return_pct"]
+                        - backtest_results["buy_hold_return_pct"]
+                    )
+                    col1.metric(
+                        "策略最终资产",
+                        f"¥{backtest_results['final_value']:,.2f}",
+                        f"{backtest_results['signal_return_pct']:.2f}%",
+                    )
+                    col2.metric(
+                        "买入并持有",
+                        f"¥{backtest_results['buy_hold_value']:,.2f}",
+                        f"{backtest_results['buy_hold_return_pct']:.2f}%",
+                    )
+                    col3.metric(
+                        "交易次数",
+                        str(len(backtest_results["trades"])),
+                        f"{delta_pct:+.2f}% 相对买入持有",
+                    )
+
+                    trades = backtest_results["trades"]
+                    if trades:
+                        trades_df = pd.DataFrame(trades)
+                        order = [
+                            "date",
+                            "action",
+                            "price",
+                            "units",
+                            "cost",
+                            "proceeds",
+                            "gain_loss",
+                            "gain_loss_pct",
+                            "cash",
+                            "position_value",
+                            "total_value",
+                        ]
+                        existing_columns = [col for col in order if col in trades_df.columns]
+                        trades_df = trades_df[existing_columns]
+                        trades_df = trades_df.rename(
+                            columns={
+                                "date": "日期",
+                                "action": "操作",
+                                "price": "价格",
+                                "units": "数量",
+                                "cost": "买入金额",
+                                "proceeds": "卖出金额",
+                                "gain_loss": "收益",
+                                "gain_loss_pct": "收益率(%)",
+                                "cash": "现金余额",
+                                "position_value": "持仓市值",
+                                "total_value": "总资产",
+                            }
+                        )
+                        st.table(trades_df)
+                    else:
+                        st.caption("回测期间未执行实际买卖。")
         except Exception as e:
             st.error(f"获取数据时出错: {str(e)}")
 
@@ -988,6 +1246,8 @@ else:  # Auto scan mode
                 count = industry_counts[ind]
                 # Get the latest change percentage for this industry
                 change_pct = industry_change_pct.get(ind, 0)
+                if change_pct is None or pd.isna(change_pct):
+                    change_pct = 0
 
                 # Format percentage with arrow indicator and color
                 if change_pct > 0:
@@ -1059,7 +1319,7 @@ else:  # Auto scan mode
             progress_bar = None
             scan_partial = False
             scan_error_message = None
-            with st.spinner("正在扫描买入信号，这可能需要一些时间..."):
+            with st.spinner("正在扫描买入/卖出信号，这可能需要一些时间..."):
                 try:
                     # Variable to track if we have valid stocks to scan
                     have_stocks_to_scan = True
@@ -1235,15 +1495,14 @@ else:  # Auto scan mode
                                         )
                                     )
 
-                                    # Mark crossover signals
-                                    crossover_dates = stock_data[
-                                        stock_data["crossover"]
-                                    ].index
-                                    for date in crossover_dates:
-                                        price_at_crossover = stock_data.loc[date, "close"]
+                                    buy_dates = stock_data[stock_data["buy_signal"]].index
+                                    sell_dates = stock_data[stock_data["sell_signal"]].index
+
+                                    for date in buy_dates:
+                                        price_at_signal = stock_data.loc[date, "close"]
                                         fig.add_annotation(
                                             x=date,
-                                            y=price_at_crossover * 1.04,
+                                            y=price_at_signal * 1.04,
                                             text="买入信号",
                                             showarrow=True,
                                             arrowhead=1,
@@ -1253,9 +1512,30 @@ else:  # Auto scan mode
                                             font=dict(color="green", size=12),
                                         )
 
-                                    # Layout
+                                    for date in sell_dates:
+                                        price_at_signal = stock_data.loc[date, "close"]
+                                        fig.add_annotation(
+                                            x=date,
+                                            y=price_at_signal * 0.96,
+                                            text="卖出信号",
+                                            showarrow=True,
+                                            arrowhead=1,
+                                            arrowcolor="red",
+                                            arrowsize=1,
+                                            arrowwidth=2,
+                                            font=dict(color="red", size=12),
+                                        )
+
+                                    history_label = (
+                                        "1 年"
+                                        if DEFAULT_HISTORY_DAYS >= 365
+                                        else f"{DEFAULT_HISTORY_DAYS} 天"
+                                    )
                                     fig.update_layout(
-                                        title=f"{ticker} - {name} GMMA 图表",
+                                        title=(
+                                            f"{ticker} - {name} GMMA 图表"
+                                            f" (最近 {history_label})"
+                                        ),
                                         xaxis_title="日期",
                                         yaxis_title="价格",
                                         legend_title="图例",
@@ -1264,8 +1544,100 @@ else:  # Auto scan mode
                                         height=500,
                                     )
 
-                                    # Display the plot
                                     st.plotly_chart(fig, use_container_width=True)
+
+                                    signal_rows = []
+                                    for date in buy_dates:
+                                        signal_rows.append(
+                                            {
+                                                "日期": date.strftime("%Y-%m-%d"),
+                                                "信号": "买入",
+                                                "收盘价": round(
+                                                    float(stock_data.loc[date, "close"]), 2
+                                                ),
+                                            }
+                                        )
+                                    for date in sell_dates:
+                                        signal_rows.append(
+                                            {
+                                                "日期": date.strftime("%Y-%m-%d"),
+                                                "信号": "卖出",
+                                                "收盘价": round(
+                                                    float(stock_data.loc[date, "close"]), 2
+                                                ),
+                                            }
+                                        )
+
+                                    if signal_rows:
+                                        signals_df = (
+                                            pd.DataFrame(signal_rows)
+                                            .sort_values("日期")
+                                            .reset_index(drop=True)
+                                        )
+                                        st.table(signals_df)
+                                    else:
+                                        st.caption("最近一年内未检测到买入或卖出信号。")
+
+                                    backtest_results = perform_back_testing(stock_data)
+                                    delta_pct = (
+                                        backtest_results["signal_return_pct"]
+                                        - backtest_results["buy_hold_return_pct"]
+                                    )
+                                    col_a, col_b, col_c = st.columns(3)
+                                    col_a.metric(
+                                        "策略最终资产",
+                                        f"¥{backtest_results['final_value']:,.2f}",
+                                        f"{backtest_results['signal_return_pct']:.2f}%",
+                                    )
+                                    col_b.metric(
+                                        "买入并持有",
+                                        f"¥{backtest_results['buy_hold_value']:,.2f}",
+                                        f"{backtest_results['buy_hold_return_pct']:.2f}%",
+                                    )
+                                    col_c.metric(
+                                        "交易次数",
+                                        str(len(backtest_results["trades"])),
+                                        f"{delta_pct:+.2f}% 相对买入持有",
+                                    )
+
+                                    trades = backtest_results["trades"]
+                                    if trades:
+                                        trades_df = pd.DataFrame(trades)
+                                        order = [
+                                            "date",
+                                            "action",
+                                            "price",
+                                            "units",
+                                            "cost",
+                                            "proceeds",
+                                            "gain_loss",
+                                            "gain_loss_pct",
+                                            "cash",
+                                            "position_value",
+                                            "total_value",
+                                        ]
+                                        existing_cols = [
+                                            col for col in order if col in trades_df.columns
+                                        ]
+                                        trades_df = trades_df[existing_cols]
+                                        trades_df = trades_df.rename(
+                                            columns={
+                                                "date": "日期",
+                                                "action": "操作",
+                                                "price": "价格",
+                                                "units": "数量",
+                                                "cost": "买入金额",
+                                                "proceeds": "卖出金额",
+                                                "gain_loss": "收益",
+                                                "gain_loss_pct": "收益率(%)",
+                                                "cash": "现金余额",
+                                                "position_value": "持仓市值",
+                                                "total_value": "总资产",
+                                            }
+                                        )
+                                        st.table(trades_df)
+                                    else:
+                                        st.caption("回测期间未执行实际买卖。")
                             except Exception as stock_exc:
                                 stock_errors.append((ticker, str(stock_exc)))
                                 continue
