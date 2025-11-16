@@ -1,15 +1,16 @@
-import streamlit as st
-import akshare as ak
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 import os
-import re
-import time
 import random
+import time
 import traceback
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 from threading import Lock
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+import tushare as ts
 
 # Set page layout to wide mode
 st.set_page_config(
@@ -22,7 +23,7 @@ st.set_page_config(
 # App title and description
 st.title("A股市值变化排序工具")
 st.markdown("""
-此应用程序使用 akshare 数据分析中国 A 股股票在指定时间区间内的总市值变化。
+此应用程序使用 Tushare 数据分析中国 A 股股票在指定时间区间内的总市值变化。
 它会基于用户选择的起止日期并发扫描全市场，列出总市值增幅最大的前50只股票以及跌幅最大的前50只股票。
 """)
 
@@ -42,9 +43,114 @@ REQUEST_MIN_INTERVAL = 0.08  # seconds between outbound requests
 REQUEST_JITTER = 0.03        # random jitter to avoid fixed pattern
 REQUEST_BACKOFF_FACTOR = 1.8
 REQUEST_BACKOFF_MAX = 6.0
+RATE_LIMIT_MSG = "每分钟最多访问"
 
 _request_lock = Lock()
 _next_available_time = 0.0
+
+
+def _get_tushare_token_from_secrets() -> str | None:
+    """从 Streamlit secrets 中读取 Tushare 授权令牌。"""
+    secret_token = None
+    tushare_section = st.secrets.get("tushare")
+    if tushare_section and isinstance(tushare_section, Mapping):
+        secret_token = (
+            tushare_section.get("token")
+            or tushare_section.get("api_token")
+            or tushare_section.get("TUSHARE_TOKEN")
+        )
+    return secret_token or st.secrets.get("tushare_token") or st.secrets.get(
+        "TUSHARE_TOKEN"
+    )
+
+
+TUSHARE_TOKEN = (
+    _get_tushare_token_from_secrets()
+    or os.getenv("TUSHARE_TOKEN")
+    or os.getenv("TS_TOKEN")
+    or os.getenv("TUSHARE_PRO_TOKEN")
+)
+
+
+def to_ts_code(code: str) -> str:
+    """将 6 位股票代码转换为 Tushare ts_code 格式。"""
+    code = str(code).zfill(6)
+    if code.startswith(("6", "9")) or code.startswith(("688", "689")):
+        return f"{code}.SH"
+    if code.startswith(("4", "8")):
+        return f"{code}.BJ"
+    return f"{code}.SZ"
+
+
+@st.cache_resource
+def get_tushare_client():
+    """缓存并返回 Tushare Pro 客户端实例。"""
+    if not TUSHARE_TOKEN:
+        raise RuntimeError("请在 TUSHARE_TOKEN/TS_TOKEN 环境变量或 st.secrets 中配置 Tushare 授权令牌。")
+    return ts.pro_api(TUSHARE_TOKEN)
+
+
+def call_tushare_api(func, *, api_label: str):
+    """包装 Tushare API 调用并提供退避与错误日志。"""
+    last_exception = None
+    for attempt in range(1, REQUEST_MAX_RETRIES + 1):
+        acquire_request_slot()
+        try:
+            return func()
+        except Exception as exc:
+            last_exception = exc
+            message = str(exc)
+            if attempt == REQUEST_MAX_RETRIES:
+                break
+            delay = backoff_delay(attempt)
+            if RATE_LIMIT_MSG in message:
+                append_error_log(
+                    f"Tushare 限频: {api_label} 第 {attempt} 次调用失败，将在 {delay:.2f}s 后重试。错误: {message}"
+                )
+            else:
+                append_error_log(
+                    f"Tushare API {api_label} 第 {attempt} 次调用失败，将在 {delay:.2f}s 后重试。错误: {message}"
+                )
+            time.sleep(delay)
+    if last_exception:
+        raise last_exception
+    return None
+
+
+def prepare_stock_list_df(df: pd.DataFrame | None) -> pd.DataFrame:
+    """标准化股票列表数据结构，确保包含 code/name/ts_code 列。"""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=['code', 'name', 'ts_code'])
+    normalised = df.copy()
+    if 'code' in normalised.columns:
+        normalised['code'] = (
+            normalised['code']
+            .astype(str)
+            .str.replace(r"\.0$", "", regex=True)
+            .str.zfill(6)
+        )
+    elif 'symbol' in normalised.columns:
+        normalised['code'] = (
+            normalised['symbol']
+            .astype(str)
+            .str.replace(r"\.0$", "", regex=True)
+            .str.zfill(6)
+        )
+    else:
+        normalised['code'] = normalised.index.astype(str).str.zfill(6)
+    if 'name' not in normalised.columns:
+        normalised['name'] = ""
+    normalised['name'] = normalised['name'].fillna("").astype(str)
+    if 'ts_code' not in normalised.columns:
+        normalised['ts_code'] = normalised['code'].apply(to_ts_code)
+    else:
+        normalised['ts_code'] = normalised['ts_code'].fillna("").astype(str)
+        missing_mask = normalised['ts_code'].eq("")
+        normalised.loc[missing_mask, 'ts_code'] = normalised.loc[
+            missing_mask, 'code'
+        ].apply(to_ts_code)
+    return normalised
+
 
 # Cache for stock list to avoid repeated API calls
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -57,34 +163,39 @@ def get_stock_list():
             if file_age <= timedelta(days=STOCK_LIST_REFRESH_DAYS):
                 use_cached_file = True
         if use_cached_file:
-            cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE, dtype={"code": str, "name": str})
-            cached_df['code'] = cached_df['code'].str.zfill(6)
-            return cached_df
+            cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE)
+            return prepare_stock_list_df(cached_df)
 
-        stock_list_df = ak.stock_info_a_code_name()
+        client = get_tushare_client()
+        fields = "ts_code,symbol,name,market,list_date"
+        stock_list_df = call_tushare_api(
+            lambda: client.stock_basic(exchange="", list_status="L", fields=fields),
+            api_label="stock_basic",
+        )
         if stock_list_df is not None and not stock_list_df.empty:
-            stock_list_df['code'] = stock_list_df['code'].astype(str).str.zfill(6)
+            stock_list_df = stock_list_df.rename(columns={"symbol": "code"})
+            stock_list_df = prepare_stock_list_df(stock_list_df)
             try:
                 stock_list_df.to_csv(STOCK_LIST_CACHE_FILE, index=False, encoding="utf-8")
             except Exception as write_err:
                 append_error_log(f"保存股票列表缓存失败: {write_err}")
         elif os.path.exists(STOCK_LIST_CACHE_FILE):
-            # API 失败但仍有旧缓存可用
-            cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE, dtype={"code": str, "name": str})
-            cached_df['code'] = cached_df['code'].str.zfill(6)
-            return cached_df
-        return stock_list_df or pd.DataFrame(columns=['code', 'name'])
+            cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE)
+            return prepare_stock_list_df(cached_df)
+        return stock_list_df or pd.DataFrame(columns=['code', 'name', 'ts_code'])
+    except RuntimeError as token_err:
+        st.error(str(token_err))
+        return pd.DataFrame(columns=['code', 'name', 'ts_code'])
     except Exception as e:
         append_error_log(f"获取股票列表失败: {e}")
         if os.path.exists(STOCK_LIST_CACHE_FILE):
             try:
-                cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE, dtype={"code": str, "name": str})
-                cached_df['code'] = cached_df['code'].str.zfill(6)
-                return cached_df
+                cached_df = pd.read_csv(STOCK_LIST_CACHE_FILE)
+                return prepare_stock_list_df(cached_df)
             except Exception as read_err:
                 append_error_log(f"读取本地股票列表缓存失败: {read_err}")
         st.error(f"获取股票列表失败: {str(e)}")
-        return pd.DataFrame(columns=['code', 'name'])
+        return pd.DataFrame(columns=['code', 'name', 'ts_code'])
 
 def append_error_log(message):
     """将错误信息写入日志文件"""
@@ -113,234 +224,162 @@ def backoff_delay(attempt):
     """Calculate exponential backoff delay for retries"""
     delay = REQUEST_BACKOFF_FACTOR ** attempt
     return min(delay, REQUEST_BACKOFF_MAX)
-    
-# Helper to normalise Chinese number strings like "123.4亿"
-def parse_numeric_value(value):
-    """将带单位的中文数字字符串转换为浮点数"""
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return np.nan
-    if isinstance(value, (int, float, np.number)):
-        return float(value)
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return np.nan
-    # Remove common wrapper characters
-    for ch in ("(", ")", "（", "）", " "):
-        text = text.replace(ch, "")
-    if text in {"", "--", "None"}:
-        return np.nan
-    suffix_multipliers = [
-        ("万亿元", 1e12),
-        ("亿元", 1e8),
-        ("亿股", 1e8),
-        ("亿份", 1e8),
-        ("亿手", 1e8 * 100),
-        ("亿", 1e8),
-        ("万股", 1e4),
-        ("万份", 1e4),
-        ("万手", 1e4 * 100),
-        ("万元", 1e4),
-        ("万", 1e4),
-        ("千股", 1e3),
-        ("千份", 1e3),
-        ("千手", 1e3 * 100),
-        ("百股", 1e2),
-        ("百份", 1e2),
-        ("百手", 1e2 * 100),
-        ("股", 1.0),
-        ("份", 1.0),
-        ("手", 100.0),
-        ("元", 1.0)
-    ]
-    multiplier = 1.0
-    for suffix, factor in suffix_multipliers:
-        if text.endswith(suffix):
-            text = text[:-len(suffix)]
-            multiplier = factor
-            break
-    # Extract numeric component
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    if not match:
-        return np.nan
-    try:
-        return float(match.group()) * multiplier
-    except ValueError:
-        return np.nan
 
-# Cache stock basic info to avoid repeated API hits
-@st.cache_data(ttl=3600)
-def get_stock_basic_info(symbol_no_prefix):
-    """获取单只股票的基础信息（总股本、流通股本、市值等）"""
-    try:
-        info_df = ak.stock_individual_info_em(symbol=symbol_no_prefix)
-    except Exception:
-        return {}
-    if info_df is None or info_df.empty:
-        return {}
-    info_dict = dict(zip(info_df["item"], info_df["value"]))
-    return info_dict
-
-# Function to get historical market value data for a stock
 @st.cache_data(ttl=900, show_spinner=False)
-def get_stock_market_value(symbol, start_date, end_date):
-    """获取指定股票在给定日期范围的市值数据"""
+def get_stock_market_value(symbol, start_date, end_date, *, ts_code=None, stock_name=None):
+    """获取指定股票在给定日期范围的 Tushare 总市值与流通市值数据。"""
+    symbol_no_prefix = str(symbol).zfill(6)
+    ts_code = ts_code or to_ts_code(symbol_no_prefix)
+    display_name = stock_name or symbol_no_prefix
     try:
-        symbol_no_prefix = str(symbol).zfill(6)
-        hist_df = None
-        last_exception = None
-        
-        for attempt in range(REQUEST_MAX_RETRIES):
-            if attempt:
-                time.sleep(backoff_delay(attempt))
-            acquire_request_slot()
-            try:
-                hist_df = ak.stock_zh_a_hist(
-                    symbol=symbol_no_prefix,
-                    period="daily",
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust=""
-                )
-                break
-            except Exception as exc:
-                last_exception = exc
-                continue
-        
-        if hist_df is None:
-            reason = last_exception or "未知错误"
-            append_error_log(
-                f"获取 {symbol_no_prefix} 数据失败(重试 {REQUEST_MAX_RETRIES} 次后放弃): {reason}"
-            )
-            return None
-        
-        if hist_df.empty:
-            return None
-        
-        # Ensure we always have a name column for downstream usage
-        if '名称' not in hist_df.columns:
-            basic_info = get_stock_basic_info(symbol_no_prefix)
-            stock_name = basic_info.get('证券简称') or symbol_no_prefix
-            hist_df['名称'] = stock_name
-        
-        # Normalise date column
-        hist_df['日期'] = pd.to_datetime(hist_df['日期'])
-        
-        # Calculate market value when not provided directly
-        has_circ_mv = '流通市值' in hist_df.columns
-        has_total_mv = '总市值' in hist_df.columns
-        if not has_circ_mv or not has_total_mv:
-            basic_info = get_stock_basic_info(symbol_no_prefix)
-            float_shares = parse_numeric_value(basic_info.get('流通股本'))
-            total_shares = parse_numeric_value(basic_info.get('总股本'))
-            latest_circ_mv = parse_numeric_value(basic_info.get('流通市值'))
-            latest_total_mv = parse_numeric_value(basic_info.get('总市值'))
-            
-            # Use latest market value to back-calc shares if share counts missing
-            close_candidates = [col for col in hist_df.columns if any(key in col for key in ['收盘', 'close'])]
-            close_col = None
-            if '收盘' in hist_df.columns:
-                close_col = '收盘'
-            elif '收盘价' in hist_df.columns:
-                close_col = '收盘价'
-            elif close_candidates:
-                close_col = close_candidates[0]
-            elif 'close' in hist_df.columns:
-                close_col = 'close'
-            
-            if close_col is not None:
-                end_price = parse_numeric_value(hist_df.iloc[-1][close_col])
-            else:
-                end_price = np.nan
-            
-            if np.isnan(float_shares) and not np.isnan(latest_circ_mv) and end_price not in (None, 0):
-                float_shares = latest_circ_mv / end_price if end_price else np.nan
-            if np.isnan(total_shares) and not np.isnan(latest_total_mv) and end_price not in (None, 0):
-                total_shares = latest_total_mv / end_price if end_price else np.nan
-            
-            if close_col is not None:
-                if not has_circ_mv and not np.isnan(float_shares):
-                    hist_df['流通市值'] = hist_df[close_col].apply(lambda x: parse_numeric_value(x) * float_shares if pd.notna(x) else np.nan)
-                    has_circ_mv = True
-                if not has_total_mv and not np.isnan(total_shares):
-                    hist_df['总市值'] = hist_df[close_col].apply(lambda x: parse_numeric_value(x) * total_shares if pd.notna(x) else np.nan)
-                    has_total_mv = True
-        
-        for col in ['流通市值', '总市值']:
-            if col in hist_df.columns:
-                hist_df[col] = hist_df[col].apply(parse_numeric_value)
-        
-        # Return only necessary columns if market value available
-        needed_cols = ['日期', '名称']
-        if has_circ_mv:
-            needed_cols.append('流通市值')
-        if has_total_mv:
-            needed_cols.append('总市值')
-        return hist_df[needed_cols]
-    except Exception as e:
-        append_error_log(f"获取 {symbol} 数据失败: {e}")
+        client = get_tushare_client()
+    except RuntimeError as token_err:
+        append_error_log(f"初始化 Tushare 客户端失败: {token_err}")
+        return None
+    fields = (
+        "ts_code,trade_date,close,total_mv,circ_mv,total_share,float_share,free_share"
+    )
+    try:
+        hist_df = call_tushare_api(
+            lambda: client.daily_basic(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                fields=fields,
+            ),
+            api_label=f"daily_basic:{ts_code}",
+        )
+    except Exception as exc:
+        append_error_log(f"获取 {symbol_no_prefix} Tushare 数据失败: {exc}")
         return None
 
-# Function to test available AkShare functions for historical data
-def test_available_history_functions():
-    """测试可用的历史数据函数"""
-    test_stock = "000001"  # 平安银行
-    results = {}
-    
-    # List of potential functions to try
-    functions_to_try = [
-        {"name": "stock_zh_a_hist", "params": {"symbol": test_stock, "period": "daily", "start_date": "20230101", "end_date": "20230102", "adjust": ""}},
-        {"name": "stock_zh_a_daily", "params": {"symbol": test_stock}},
-        {"name": "stock_zh_a_spot_em", "params": {}},
-        {"name": "stock_individual_info_em", "params": {"symbol": test_stock}}
+    if hist_df is None or hist_df.empty:
+        return None
+
+    hist_df = hist_df.copy()
+    if 'trade_date' not in hist_df.columns:
+        append_error_log(f"{ts_code} 返回数据中缺少 trade_date 列")
+        return None
+    numeric_cols = [
+        'close',
+        'total_mv',
+        'circ_mv',
+        'total_share',
+        'float_share',
+        'free_share',
     ]
-    
-    for func in functions_to_try:
+    for col in numeric_cols:
+        if col in hist_df.columns:
+            hist_df[col] = pd.to_numeric(hist_df[col], errors='coerce')
+    hist_df['日期'] = pd.to_datetime(hist_df['trade_date'], format='%Y%m%d', errors='coerce')
+    hist_df = hist_df.dropna(subset=['日期']).sort_values('日期').reset_index(drop=True)
+    if hist_df.empty:
+        return None
+
+    hist_df['名称'] = display_name
+    if 'close' in hist_df.columns:
+        hist_df['收盘'] = hist_df['close']
+
+    # Convert value units (Tushare total/circ mv are in 1e4 RMB)
+    if 'total_mv' in hist_df.columns:
+        hist_df['总市值'] = hist_df['total_mv'] * 1e4
+    if 'circ_mv' in hist_df.columns:
+        hist_df['流通市值'] = hist_df['circ_mv'] * 1e4
+
+    # Convert share counts (Tushare share columns use 万股单位)
+    if 'total_share' in hist_df.columns:
+        hist_df['总股本'] = hist_df['total_share'] * 1e4
+    if 'float_share' in hist_df.columns:
+        hist_df['流通股本'] = hist_df['float_share'] * 1e4
+    elif 'free_share' in hist_df.columns:
+        hist_df['流通股本'] = hist_df['free_share'] * 1e4
+
+    # Reconstruct missing market values when necessary
+    if '总市值' not in hist_df.columns or hist_df['总市值'].isna().all():
+        if '收盘' in hist_df.columns and '总股本' in hist_df.columns:
+            hist_df['总市值'] = hist_df['收盘'] * hist_df['总股本']
+    if '流通市值' not in hist_df.columns or hist_df['流通市值'].isna().all():
+        if '收盘' in hist_df.columns and '流通股本' in hist_df.columns:
+            hist_df['流通市值'] = hist_df['收盘'] * hist_df['流通股本']
+
+    needed_cols = ['日期', '名称']
+    for col in ['流通市值', '总市值', '收盘', '总股本', '流通股本']:
+        if col in hist_df.columns:
+            needed_cols.append(col)
+    return hist_df[needed_cols]
+
+# Function to test available Tushare functions for historical data
+def test_available_history_functions():
+    """测试关键的 Tushare 数据接口可用性"""
+    results = {}
+    try:
+        client = get_tushare_client()
+    except RuntimeError as token_err:
+        results["tushare_client"] = {
+            "status": "error",
+            "error": str(token_err),
+        }
+        return results
+
+    checks = [
+        {
+            "name": "stock_basic",
+            "callable": lambda: client.stock_basic(
+                exchange="", list_status="L", fields="ts_code,name"
+            ),
+            "expected_column": "ts_code",
+        },
+        {
+            "name": "daily_basic",
+            "callable": lambda: client.daily_basic(
+                ts_code="000001.SZ",
+                start_date="20230101",
+                end_date="20230105",
+                fields="ts_code,trade_date,total_mv,circ_mv,close",
+            ),
+            "expected_column": "total_mv",
+        },
+    ]
+
+    for item in checks:
+        api_name = item["name"]
         try:
-            function_name = func["name"]
-            function = getattr(ak, function_name)
-            result = function(**func["params"])
-            
-            if not result.empty:
-                # Check if market value data is available
-                has_market_value = any('市值' in col for col in result.columns)
-                columns = list(result.columns)
-                
-                results[function_name] = {
+            df = call_tushare_api(item["callable"], api_label=api_name)
+            if df is not None and not df.empty:
+                result_entry = {
                     "status": "success",
-                    "has_market_value": has_market_value,
-                    "columns": columns,
-                    "sample": result.head(1).to_dict('records')[0] if not result.empty else {}
+                    "rows": len(df),
+                    "columns": list(df.columns),
+                    "sample": df.head(1).to_dict('records')[0],
                 }
+                expected_col = item.get("expected_column")
+                if expected_col and expected_col not in df.columns:
+                    result_entry["warning"] = f"缺少 {expected_col} 列"
+                results[api_name] = result_entry
             else:
-                results[function_name] = {
+                results[api_name] = {
                     "status": "empty_result",
-                    "has_market_value": False,
-                    "columns": []
+                    "columns": [],
                 }
-        except Exception as e:
-            results[function_name] = {
+        except Exception as exc:
+            results[api_name] = {
                 "status": "error",
-                "error": str(e)
+                "error": str(exc),
             }
-    
+
     return results
 
-# Function to add exchange prefix to stock code
-def add_exchange_prefix(code):
-    """根据股票代码添加交易所前缀"""
-    code = str(code).zfill(6)
-    if code.startswith(('6', '688', '900')):
-        return f"sh{code}"
-    else:
-        return f"sz{code}"
-
 # Function to get market value for specific dates
-def get_market_value_for_dates(symbol, start_date, end_date):
+def get_market_value_for_dates(symbol, start_date, end_date, *, ts_code=None, stock_name=None):
     """获取指定股票在起始日和结束日的市值数据"""
     try:
-        symbol_no_prefix = str(symbol).zfill(6)
-        # Get all data in range
-        df = get_stock_market_value(symbol, start_date, end_date)
+        df = get_stock_market_value(
+            symbol,
+            start_date,
+            end_date,
+            ts_code=ts_code,
+            stock_name=stock_name,
+        )
         if df is None or df.empty:
             return None, None, None, None, None, "历史行情为空"
         
@@ -350,7 +389,7 @@ def get_market_value_for_dates(symbol, start_date, end_date):
         
         df = df.sort_values('日期').reset_index(drop=True)
         
-        name = df.iloc[-1].get('名称', symbol)
+        name = df.iloc[-1].get('名称', stock_name or symbol)
         circ_series = df['流通市值'] if '流通市值' in df.columns else pd.Series(dtype=float)
         total_series = df['总市值'] if '总市值' in df.columns else pd.Series(dtype=float)
         
@@ -369,15 +408,20 @@ def get_market_value_for_dates(symbol, start_date, end_date):
         
         if start_total_mv is None or end_total_mv is None:
             # Attempt to reconstruct total market value from closing price and share count
-            close_column_candidates = ["收盘", "收盘价", "close", "Close", "收盘(元)", "收盘价(元)", "收盘价(元/股)"]
-            close_col = next((col for col in close_column_candidates if col in df.columns), None)
-            if close_col:
-                closing_prices = df[close_col].apply(parse_numeric_value)
-                basic_info = get_stock_basic_info(symbol_no_prefix)
-                total_shares = parse_numeric_value(basic_info.get('总股本'))
-                if pd.notna(total_shares) and total_shares not in (0, np.nan):
-                    reconstructed_total_series = closing_prices * total_shares
-                    start_total_mv, end_total_mv = extract_first_last(reconstructed_total_series)
+            if '收盘' in df.columns and '总股本' in df.columns:
+                reconstructed_total_series = (
+                    pd.to_numeric(df['收盘'], errors='coerce')
+                    * pd.to_numeric(df['总股本'], errors='coerce')
+                )
+                start_total_mv, end_total_mv = extract_first_last(reconstructed_total_series)
+
+        if start_circ_mv is None or end_circ_mv is None:
+            if '收盘' in df.columns and '流通股本' in df.columns:
+                reconstructed_circ_series = (
+                    pd.to_numeric(df['收盘'], errors='coerce')
+                    * pd.to_numeric(df['流通股本'], errors='coerce')
+                )
+                start_circ_mv, end_circ_mv = extract_first_last(reconstructed_circ_series)
         
         if start_total_mv is None or end_total_mv is None:
             return None, None, None, None, None, "无法获取或重建总市值数据"
@@ -401,7 +445,10 @@ def get_formatted_date_range(days_ago):
 # Function to test API with a single stock
 def test_api_connectivity(start_date_str, end_date_str):
     """测试与API的连接和数据获取"""
-    test_stocks = ['000001', '600000']  # Test with both SZ and SH markets
+    test_stocks = [
+        {"code": "000001", "ts_code": "000001.SZ"},  # 平安银行
+        {"code": "600000", "ts_code": "600000.SH"},  # 浦发银行
+    ]
     results = []
     
     # First, test which functions are available
@@ -410,26 +457,37 @@ def test_api_connectivity(start_date_str, end_date_str):
     # Now test actual data retrieval for specific stocks
     for stock in test_stocks:
         try:
-            hist_df = get_stock_market_value(stock, start_date_str, end_date_str)
+            code = stock["code"]
+            ts_code = stock.get("ts_code") or to_ts_code(code)
+            hist_df = get_stock_market_value(
+                code,
+                start_date_str,
+                end_date_str,
+                ts_code=ts_code,
+                stock_name=None,
+            )
             
             if hist_df is not None and not hist_df.empty:
                 sample_data = hist_df.head(1).to_dict('records')[0]
                 results.append({
-                    'stock': stock,
+                    'stock': code,
+                    'ts_code': ts_code,
                     'status': 'success',
                     'columns': list(hist_df.columns),
                     'sample': sample_data
                 })
             else:
                 results.append({
-                    'stock': stock,
+                    'stock': code,
+                    'ts_code': ts_code,
                     'status': 'empty_response',
                     'columns': [],
                     'sample': {}
                 })
         except Exception as e:
             results.append({
-                'stock': stock,
+                'stock': stock["code"],
+                'ts_code': stock.get("ts_code") or to_ts_code(stock["code"]),
                 'status': 'error',
                 'error': str(e),
                 'traceback': traceback.format_exc()
@@ -486,6 +544,12 @@ def main():
                     st.error("无法获取股票列表，请稍后重试")
                     return
                 stock_list_df['code'] = stock_list_df['code'].astype(str).str.zfill(6)
+                if 'ts_code' in stock_list_df.columns:
+                    stock_list_df['ts_code'] = stock_list_df['ts_code'].fillna("").astype(str)
+                    missing_ts = stock_list_df['ts_code'].eq("")
+                    stock_list_df.loc[missing_ts, 'ts_code'] = stock_list_df.loc[missing_ts, 'code'].apply(to_ts_code)
+                else:
+                    stock_list_df['ts_code'] = stock_list_df['code'].apply(to_ts_code)
                 stock_list_df = stock_list_df.drop_duplicates(subset=['code'])
                 initial_count = len(stock_list_df)
                 stock_list_df = stock_list_df[~stock_list_df['name'].astype(str).str.contains('ST', case=False, na=False)]
@@ -518,9 +582,14 @@ def main():
             def process_stock(record):
                 code = str(record.get('code')).zfill(6)
                 fallback_name = record.get('name') or code
+                ts_code = record.get('ts_code') or to_ts_code(code)
                 try:
                     name, _, _, start_total_mv, end_total_mv, reason = get_market_value_for_dates(
-                        code, start_date_str, end_date_str
+                        code,
+                        start_date_str,
+                        end_date_str,
+                        ts_code=ts_code,
+                        stock_name=fallback_name,
                     )
                     stock_name = name or fallback_name
                     if reason:

@@ -68,7 +68,6 @@ SCAN_RESULT_CACHE_FILES = {
 MAX_PREVIOUS_RESULTS = 50
 DEFAULT_HISTORY_DAYS = 365
 EMA_WARMUP_DAYS = 60
-SELL_SIGNAL_EMA = 8
 BACKTEST_INITIAL_CASH = 100_000
 
 
@@ -355,7 +354,6 @@ def load_stock_history_with_signals(
     ticker: str,
     *,
     history_days: int = DEFAULT_HISTORY_DAYS,
-    sell_ema_period: int = SELL_SIGNAL_EMA,
 ) -> pd.DataFrame:
     """Load historical data with GMMA indicators and trading signals."""
     ticker = normalize_symbol(ticker)
@@ -387,14 +385,8 @@ def load_stock_history_with_signals(
         stock_data["avg_short_ema"] > stock_data["avg_long_ema"]
     )
     stock_data["buy_signal"] = False
-    stock_data["sell_signal"] = False
     stock_data["crossover"] = False
 
-    ema_column = f"EMA{sell_ema_period}"
-    if ema_column not in stock_data.columns:
-        ema_column = "EMA8" if "EMA8" in stock_data.columns else ema_column
-
-    in_position = False
     for i in range(1, len(stock_data)):
         prev_idx = stock_data.index[i - 1]
         curr_idx = stock_data.index[i]
@@ -404,14 +396,6 @@ def load_stock_history_with_signals(
         if not prev_state and curr_state:
             stock_data.at[curr_idx, "buy_signal"] = True
             stock_data.at[curr_idx, "crossover"] = True
-            in_position = True
-        elif (
-            in_position
-            and ema_column in stock_data.columns
-            and stock_data.at[curr_idx, "close"] < stock_data.at[curr_idx, ema_column]
-        ):
-            stock_data.at[curr_idx, "sell_signal"] = True
-            in_position = False
 
     display_cutoff = today - timedelta(days=history_days)
     stock_data = stock_data[stock_data.index >= display_cutoff]
@@ -587,7 +571,7 @@ def has_recent_crossover(ticker, days_to_check=3):
 
         lookback = max(int(days_to_check or 0), 1)
         recent_data = stock_data.iloc[-lookback:]
-        has_signal = recent_data["buy_signal"].any() or recent_data["sell_signal"].any()
+        has_signal = recent_data["buy_signal"].any()
 
         return has_signal, stock_data if has_signal else None
     except Exception as e:
@@ -607,9 +591,7 @@ def display_scan_results(
         if partial:
             st.warning("扫描提前终止，且在错误发生前未找到符合条件的股票。")
         else:
-            st.warning(
-                f"没有找到在最近 {days_to_check} 天内出现买入或卖出信号的股票。"
-            )
+            st.warning(f"没有找到在最近 {days_to_check} 天内出现买入信号的股票。")
         return
 
     if scan_mode == "按行业板块":
@@ -623,35 +605,48 @@ def display_scan_results(
 
     prefix = "部分扫描完成，" if partial else ""
     st.success(
-        f"{prefix}在{scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入或卖出信号的股票。"
+        f"{prefix}在{scope}中找到 {len(crossover_stocks)} 只在最近 {days_to_check} 天内出现买入信号的股票。"
     )
 
     summary_rows = []
     for ticker, name, industry, stock_df in crossover_stocks:
-        latest_type = ""
         latest_date_str = ""
         latest_price = ""
         if isinstance(stock_df, pd.DataFrame) and not stock_df.empty:
-            signal_mask = stock_df["buy_signal"] | stock_df["sell_signal"]
-            signals = stock_df.loc[signal_mask, ["buy_signal", "sell_signal", "close"]]
+            signal_mask = stock_df["buy_signal"]
+            signals = stock_df.loc[signal_mask, ["buy_signal", "close"]]
             if not signals.empty:
                 last_idx = signals.index[-1]
-                if bool(signals.iloc[-1]["sell_signal"]):
-                    latest_type = "卖出"
-                elif bool(signals.iloc[-1]["buy_signal"]):
-                    latest_type = "买入"
-                latest_date_str = last_idx.strftime("%Y-%m-%d")
-                latest_price = f"{float(signals.iloc[-1]['close']):.2f}"
+                if bool(signals.iloc[-1]["buy_signal"]):
+                    latest_date_str = last_idx.strftime("%Y-%m-%d")
+                    latest_price = f"{float(signals.iloc[-1]['close']):.2f}"
 
-        summary_rows.append(
-            (ticker, name, industry, latest_type, latest_date_str, latest_price)
-        )
+        summary_rows.append((ticker, name, industry, latest_date_str, latest_price))
 
     summary_df = pd.DataFrame(
         summary_rows,
-        columns=["代码", "名称", "所属行业", "最新信号", "信号日期", "信号价"],
+        columns=["代码", "名称", "所属行业", "最新买入日期", "买入价格"],
     )
     st.subheader("信号股票列表")
+    if summary_df.empty:
+        st.info("未能构建有效的买入信号数据。")
+        return
+
+    csv_bytes = summary_df.to_csv(index=False).encode("utf-8")
+    txt_bytes = summary_df.to_csv(index=False, sep="\t").encode("utf-8")
+    col_csv, col_txt = st.columns(2)
+    col_csv.download_button(
+        "导出为 CSV",
+        data=csv_bytes,
+        file_name=f"gmma_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+    )
+    col_txt.download_button(
+        "导出为 TXT",
+        data=txt_bytes,
+        file_name=f"gmma_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        mime="text/plain",
+    )
     st.table(summary_df)
 
 
@@ -1039,7 +1034,6 @@ if analysis_mode == "单一股票分析":
                     )
 
                     buy_signal_dates = stock_data[stock_data["buy_signal"]].index
-                    sell_signal_dates = stock_data[stock_data["sell_signal"]].index
 
                     for date in buy_signal_dates:
                         price_at_signal = stock_data.loc[date, "close"]
@@ -1055,40 +1049,14 @@ if analysis_mode == "单一股票分析":
                             font=dict(color="green", size=12),
                         )
 
-                    for date in sell_signal_dates:
-                        price_at_signal = stock_data.loc[date, "close"]
-                        fig.add_annotation(
-                            x=date,
-                            y=price_at_signal * 0.92,
-                            text="卖出信号",
-                            showarrow=True,
-                            arrowhead=1,
-                            arrowcolor="red",
-                            arrowsize=1,
-                            arrowwidth=2,
-                            font=dict(color="red", size=12),
-                            ax=0,
-                            ay=40,
-                        )
-
                     buy_count = len(buy_signal_dates)
-                    sell_count = len(sell_signal_dates)
-                    if buy_count or sell_count:
-                        info_parts = []
-                        if buy_count:
-                            info_parts.append(
-                                f"买入 {buy_count} 次，最近 {buy_signal_dates[-1].strftime('%Y-%m-%d')}"
-                            )
-                        if sell_count:
-                            info_parts.append(
-                                f"卖出 {sell_count} 次，最近 {sell_signal_dates[-1].strftime('%Y-%m-%d')}"
-                            )
+                    if buy_count:
                         fig.add_annotation(
                             x=0.02,
                             y=0.98,
                             xref="paper",
                             yref="paper",
-                            text="；".join(info_parts),
+                            text=f"买入 {buy_count} 次，最近 {buy_signal_dates[-1].strftime('%Y-%m-%d')}",
                             showarrow=False,
                             font=dict(size=13, color="black"),
                             bgcolor="white",
@@ -1120,80 +1088,12 @@ if analysis_mode == "单一股票分析":
                                 "收盘价": round(float(stock_data.loc[date, "close"]), 2),
                             }
                         )
-                    for date in sell_signal_dates:
-                        signals.append(
-                            {
-                                "日期": date.strftime("%Y-%m-%d"),
-                                "信号": "卖出",
-                                "收盘价": round(float(stock_data.loc[date, "close"]), 2),
-                            }
-                        )
                     if signals:
                         st.subheader("信号日期")
                         signal_df = pd.DataFrame(signals).sort_values("日期")
                         st.table(signal_df)
                     else:
-                        st.info("最近一年内未检测到买入或卖出信号。")
-
-                    backtest_results = perform_back_testing(stock_data)
-                    st.subheader("回测表现 (初始资金 ¥100,000)")
-                    col1, col2, col3 = st.columns(3)
-                    delta_pct = (
-                        backtest_results["signal_return_pct"]
-                        - backtest_results["buy_hold_return_pct"]
-                    )
-                    col1.metric(
-                        "策略最终资产",
-                        f"¥{backtest_results['final_value']:,.2f}",
-                        f"{backtest_results['signal_return_pct']:.2f}%",
-                    )
-                    col2.metric(
-                        "买入并持有",
-                        f"¥{backtest_results['buy_hold_value']:,.2f}",
-                        f"{backtest_results['buy_hold_return_pct']:.2f}%",
-                    )
-                    col3.metric(
-                        "交易次数",
-                        str(len(backtest_results["trades"])),
-                        f"{delta_pct:+.2f}% 相对买入持有",
-                    )
-
-                    trades = backtest_results["trades"]
-                    if trades:
-                        trades_df = pd.DataFrame(trades)
-                        order = [
-                            "date",
-                            "action",
-                            "price",
-                            "units",
-                            "cost",
-                            "proceeds",
-                            "gain_loss",
-                            "gain_loss_pct",
-                            "cash",
-                            "position_value",
-                            "total_value",
-                        ]
-                        existing_columns = [col for col in order if col in trades_df.columns]
-                        trades_df = trades_df[existing_columns]
-                        trades_df = trades_df.rename(
-                            columns={
-                                "date": "日期",
-                                "action": "操作",
-                                "price": "价格",
-                                "units": "数量",
-                                "cost": "买入金额",
-                                "proceeds": "卖出金额",
-                                "gain_loss": "收益",
-                                "gain_loss_pct": "收益率(%)",
-                                "cash": "现金余额",
-                                "position_value": "持仓市值",
-                                "total_value": "总资产",
-                            }
-                        )
-                        st.table(trades_df)
-                    else:
-                        st.caption("回测期间未执行实际买卖。")
+                        st.info("最近一年内未检测到买入信号。")
         except Exception as e:
             st.error(f"获取数据时出错: {str(e)}")
 
@@ -1319,7 +1219,7 @@ else:  # Auto scan mode
             progress_bar = None
             scan_partial = False
             scan_error_message = None
-            with st.spinner("正在扫描买入/卖出信号，这可能需要一些时间..."):
+            with st.spinner("正在扫描买入信号，这可能需要一些时间..."):
                 try:
                     # Variable to track if we have valid stocks to scan
                     have_stocks_to_scan = True
@@ -1496,7 +1396,6 @@ else:  # Auto scan mode
                                     )
 
                                     buy_dates = stock_data[stock_data["buy_signal"]].index
-                                    sell_dates = stock_data[stock_data["sell_signal"]].index
 
                                     for date in buy_dates:
                                         price_at_signal = stock_data.loc[date, "close"]
@@ -1510,22 +1409,6 @@ else:  # Auto scan mode
                                             arrowsize=1,
                                             arrowwidth=2,
                                             font=dict(color="green", size=12),
-                                        )
-
-                                    for date in sell_dates:
-                                        price_at_signal = stock_data.loc[date, "close"]
-                                        fig.add_annotation(
-                                            x=date,
-                                            y=price_at_signal * 0.92,
-                                            text="卖出信号",
-                                            showarrow=True,
-                                            arrowhead=1,
-                                            arrowcolor="red",
-                                            arrowsize=1,
-                                            arrowwidth=2,
-                                            font=dict(color="red", size=12),
-                                            ax=0,
-                                            ay=40,
                                         )
 
                                     history_label = (
@@ -1559,16 +1442,6 @@ else:  # Auto scan mode
                                                 ),
                                             }
                                         )
-                                    for date in sell_dates:
-                                        signal_rows.append(
-                                            {
-                                                "日期": date.strftime("%Y-%m-%d"),
-                                                "信号": "卖出",
-                                                "收盘价": round(
-                                                    float(stock_data.loc[date, "close"]), 2
-                                                ),
-                                            }
-                                        )
 
                                     if signal_rows:
                                         signals_df = (
@@ -1578,68 +1451,7 @@ else:  # Auto scan mode
                                         )
                                         st.table(signals_df)
                                     else:
-                                        st.caption("最近一年内未检测到买入或卖出信号。")
-
-                                    backtest_results = perform_back_testing(stock_data)
-                                    delta_pct = (
-                                        backtest_results["signal_return_pct"]
-                                        - backtest_results["buy_hold_return_pct"]
-                                    )
-                                    col_a, col_b, col_c = st.columns(3)
-                                    col_a.metric(
-                                        "策略最终资产",
-                                        f"¥{backtest_results['final_value']:,.2f}",
-                                        f"{backtest_results['signal_return_pct']:.2f}%",
-                                    )
-                                    col_b.metric(
-                                        "买入并持有",
-                                        f"¥{backtest_results['buy_hold_value']:,.2f}",
-                                        f"{backtest_results['buy_hold_return_pct']:.2f}%",
-                                    )
-                                    col_c.metric(
-                                        "交易次数",
-                                        str(len(backtest_results["trades"])),
-                                        f"{delta_pct:+.2f}% 相对买入持有",
-                                    )
-
-                                    trades = backtest_results["trades"]
-                                    if trades:
-                                        trades_df = pd.DataFrame(trades)
-                                        order = [
-                                            "date",
-                                            "action",
-                                            "price",
-                                            "units",
-                                            "cost",
-                                            "proceeds",
-                                            "gain_loss",
-                                            "gain_loss_pct",
-                                            "cash",
-                                            "position_value",
-                                            "total_value",
-                                        ]
-                                        existing_cols = [
-                                            col for col in order if col in trades_df.columns
-                                        ]
-                                        trades_df = trades_df[existing_cols]
-                                        trades_df = trades_df.rename(
-                                            columns={
-                                                "date": "日期",
-                                                "action": "操作",
-                                                "price": "价格",
-                                                "units": "数量",
-                                                "cost": "买入金额",
-                                                "proceeds": "卖出金额",
-                                                "gain_loss": "收益",
-                                                "gain_loss_pct": "收益率(%)",
-                                                "cash": "现金余额",
-                                                "position_value": "持仓市值",
-                                                "total_value": "总资产",
-                                            }
-                                        )
-                                        st.table(trades_df)
-                                    else:
-                                        st.caption("回测期间未执行实际买卖。")
+                                        st.caption("最近一年内未检测到买入信号。")
                             except Exception as stock_exc:
                                 stock_errors.append((ticker, str(stock_exc)))
                                 continue
