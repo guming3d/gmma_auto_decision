@@ -180,15 +180,35 @@ fi
 
 echo "Creating or updating Container App ${AZ_CONTAINER_APP_NAME}..."
 if az containerapp show --name "${AZ_CONTAINER_APP_NAME}" --resource-group "${AZ_RESOURCE_GROUP}" >/dev/null 2>&1; then
+  echo "Updating container registry credentials for the app..."
+  az containerapp registry set \
+    --name "${AZ_CONTAINER_APP_NAME}" \
+    --resource-group "${AZ_RESOURCE_GROUP}" \
+    --server "${ACR_LOGIN_SERVER}" \
+    --username "${ACR_USERNAME}" \
+    --password "${ACR_PASSWORD}" \
+    --output none
+
+  echo "Ensuring ingress configuration..."
+  if ! az containerapp ingress update \
+    --name "${AZ_CONTAINER_APP_NAME}" \
+    --resource-group "${AZ_RESOURCE_GROUP}" \
+    --type external \
+    --target-port "${AZ_CONTAINER_PORT}" \
+    --output none; then
+    echo "Ingress update failed; enabling ingress with desired settings..."
+    az containerapp ingress enable \
+      --name "${AZ_CONTAINER_APP_NAME}" \
+      --resource-group "${AZ_RESOURCE_GROUP}" \
+      --type external \
+      --target-port "${AZ_CONTAINER_PORT}" \
+      --output none
+  fi
+
   az containerapp update \
     --name "${AZ_CONTAINER_APP_NAME}" \
     --resource-group "${AZ_RESOURCE_GROUP}" \
     --image "${IMAGE_URI}" \
-    --registry-server "${ACR_LOGIN_SERVER}" \
-    --registry-username "${ACR_USERNAME}" \
-    --registry-password "${ACR_PASSWORD}" \
-    --target-port "${AZ_CONTAINER_PORT}" \
-    --ingress external \
     --min-replicas 1 \
     --max-replicas "${AZ_MAX_REPLICAS}" \
     --output none
