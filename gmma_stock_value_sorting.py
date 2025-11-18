@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 import gc
@@ -34,8 +34,10 @@ HISTORY_FILE = APP_DIR / "history" / "all_daily_bars_compact.parquet"
 HISTORY_CACHE_FILE = CACHE_DIR / "value-sorting-history.parquet"
 HISTORY_CACHE_META = CACHE_DIR / "value-sorting-history.meta.json"
 SAMPLE_SNAPSHOT_FILE = APP_DIR / "A股报价.xls"
-DEFAULT_LOOKBACK_DAYS = 30
-TOP_COUNT = 50
+DEFAULT_TOP_COUNT = 50
+TOP_COUNT_OPTIONS = [50, 100, 200]
+SCAN_HISTORY_FILE = CACHE_DIR / "value-sorting-scan-history.json"
+SCAN_HISTORY_LIMIT = 10
 SORT_OPTIONS = {
     "总市值变化(绝对值)": "total_mv_change",
     "总市值变化百分比": "total_mv_change_pct",
@@ -464,6 +466,64 @@ def compute_market_value_changes(
     return merged, missing_codes
 
 
+def load_scan_history() -> list[dict]:
+    if not SCAN_HISTORY_FILE.exists():
+        return []
+    try:
+        data = json.loads(SCAN_HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_scan_history(records: list[dict]) -> None:
+    try:
+        SCAN_HISTORY_FILE.write_text(
+            json.dumps(records, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        # 历史记录写入失败不影响主流程
+        pass
+
+
+def record_scan_history(entry: dict) -> list[dict]:
+    history = load_scan_history()
+    history.insert(0, entry)
+    del history[SCAN_HISTORY_LIMIT:]
+    _write_scan_history(history)
+    return history
+
+
+def render_scan_history_tab(records: list[dict]) -> None:
+    if not records:
+        st.info("暂无历史扫描记录。")
+        return
+    for idx, record in enumerate(records):
+        header = (
+            f"{record.get('history_date', '未知日期')} · "
+            f"{record.get('metric_label', '未知排序')} · "
+            f"前 {record.get('top_count', '?')} 只"
+        )
+        with st.expander(header, expanded=(idx == 0)):
+            st.caption(
+                f"扫描时间：{record.get('run_ts', '未知')} · "
+                f"数据源：{record.get('source', '未记录')}"
+            )
+            top_table = pd.DataFrame(record.get("top_table", []))
+            bottom_table = pd.DataFrame(record.get("bottom_table", []))
+            if not top_table.empty:
+                st.write("总市值增加榜")
+                st.dataframe(top_table, use_container_width=True)
+            else:
+                st.write("总市值增加榜记录缺失。")
+            if not bottom_table.empty:
+                st.write("总市值减少榜")
+                st.dataframe(bottom_table, use_container_width=True)
+            else:
+                st.write("总市值减少榜记录缺失。")
+
+
 def build_display_frame(df: pd.DataFrame) -> pd.DataFrame:
     display = df[
         [
@@ -495,11 +555,16 @@ def build_display_frame(df: pd.DataFrame) -> pd.DataFrame:
     return display
 
 
-def render_tables(results_df: pd.DataFrame, metric_key: str, top_k: int, history_label: str) -> None:
+def render_tables(
+    results_df: pd.DataFrame,
+    metric_key: str,
+    top_k: int,
+    history_label: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     available = len(results_df)
     if available == 0:
         st.error("没有足够的数据用于展示，请调整日期或确认行情文件。")
-        return
+        return pd.DataFrame(), pd.DataFrame()
     top_k = min(top_k, available)
     sorted_df = results_df.sort_values(metric_key, ascending=False)
     top_df = sorted_df.head(top_k)
@@ -527,21 +592,34 @@ def render_tables(results_df: pd.DataFrame, metric_key: str, top_k: int, history
             file_name=f"top_decrease_total_mv_{history_label}.csv",
             mime="text/csv",
         )
+    return top_df, bottom_df
 
 
 def main():
     st.sidebar.title("分析设置")
     today = datetime.now().date()
-    default_start = today - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    history_input_key = "history_compare_date"
+    history_seed_key = "_history_compare_date_seed"
+    if st.session_state.get(history_seed_key) != today:
+        # Force the widget to reinitialize with today's date when the system date changes
+        st.session_state[history_seed_key] = today
+        st.session_state.pop(history_input_key, None)
     history_date = st.sidebar.date_input(
         "历史比较日",
-        value=default_start,
-        max_value=today - timedelta(days=1),
+        value=today,
+        max_value=today,
+        key=history_input_key,
     )
     metric_label = st.sidebar.radio(
         "排序依据",
         list(SORT_OPTIONS.keys()),
         index=0,
+    )
+    top_count = st.sidebar.selectbox(
+        "展示股票数量",
+        options=TOP_COUNT_OPTIONS,
+        index=TOP_COUNT_OPTIONS.index(DEFAULT_TOP_COUNT),
+        format_func=lambda x: f"{x} 只",
     )
     exclude_st = st.sidebar.checkbox("排除 ST/*ST 股票", value=True)
     uploaded_file = st.sidebar.file_uploader("上传当日 A 股报价 (xls)", type=["xls", "xlsx"])
@@ -551,64 +629,86 @@ def main():
         st.sidebar.warning("请上传当日报价 Excel 文件（xls/xlsx）。")
 
     analyze = st.sidebar.button("开始分析", type="primary")
-    if not analyze:
-        st.info("请在左侧上传文件并点击“开始分析”")
-        return
-
+    history_records = load_scan_history()
+    result_tab, history_tab = st.tabs(["本次结果", "历史记录"])
     try:
-        current_df, source_name = read_snapshot_from_source(uploaded_file, SAMPLE_SNAPSHOT_FILE)
-    except Exception as exc:
-        st.error(str(exc))
-        return
+        with result_tab:
+            if not analyze:
+                st.info("请在左侧上传文件并点击“开始分析”")
+                return
 
-    if current_df.empty:
-        st.error("行情文件没有可用数据。")
-        return
+            try:
+                current_df, source_name = read_snapshot_from_source(uploaded_file, SAMPLE_SNAPSHOT_FILE)
+            except Exception as exc:
+                st.error(str(exc))
+                return
 
-    st.success(f"已加载 {len(current_df)} 只股票的当日行情（来源：{source_name}）")
-    if exclude_st:
-        before = len(current_df)
-        current_df = current_df[~current_df["name"].str.contains("ST", case=False, na=False)].copy()
-        removed = before - len(current_df)
-        if removed > 0:
-            st.info(f"已根据名称排除 {removed} 只 ST/*ST 股票。")
+            if current_df.empty:
+                st.error("行情文件没有可用数据。")
+                return
 
-    try:
-        with st.spinner("正在载入历史行情... 该过程可能耗时一分钟"):
-            history_df = load_history_bars()
-    except Exception as exc:
-        st.error(f"无法读取历史行情: {exc}")
-        return
+            st.success(f"已加载 {len(current_df)} 只股票的当日行情（来源：{source_name}）")
+            if exclude_st:
+                before = len(current_df)
+                current_df = current_df[~current_df["name"].str.contains("ST", case=False, na=False)].copy()
+                removed = before - len(current_df)
+                if removed > 0:
+                    st.info(f"已根据名称排除 {removed} 只 ST/*ST 股票。")
 
-    history_ts = datetime.combine(history_date, datetime.min.time())
-    with st.spinner("正在匹配历史交易日..."):
-        snapshot = build_history_snapshot(history_df, current_df["code_int"].tolist(), history_ts)
+            try:
+                with st.spinner("正在载入历史行情... 该过程可能耗时一分钟"):
+                    history_df = load_history_bars()
+            except Exception as exc:
+                st.error(f"无法读取历史行情: {exc}")
+                return
 
-    if snapshot.empty:
-        st.error("在指定日期之前未找到任何历史行情记录，请选择更晚的日期。")
-        return
+            history_ts = datetime.combine(history_date, datetime.min.time())
+            with st.spinner("正在匹配历史交易日..."):
+                snapshot = build_history_snapshot(history_df, current_df["code_int"].tolist(), history_ts)
 
-    results_df, missing_codes = compute_market_value_changes(current_df, snapshot)
-    if results_df.empty:
-        st.error("无法计算市值变化，请检查上传文件与历史日期。")
-        return
+            if snapshot.empty:
+                st.error("在指定日期之前未找到任何历史行情记录，请选择更晚的日期。")
+                return
 
-    hist_dates = sorted(results_df["history_trade_date"].dt.date.unique())
-    if len(hist_dates) == 1:
-        st.info(f"历史比较日匹配到 {hist_dates[0]}")
-    else:
-        st.info(
-            f"请求日期 {history_date} 对应到 {hist_dates[0]}~{hist_dates[-1]} "
-            "（部分新股会使用首个可用交易日）"
-        )
+            results_df, missing_codes = compute_market_value_changes(current_df, snapshot)
+            if results_df.empty:
+                st.error("无法计算市值变化，请检查上传文件与历史日期。")
+                return
 
-    metric_key = SORT_OPTIONS[metric_label]
-    history_label = history_date.strftime("%Y%m%d")
-    render_tables(results_df, metric_key, TOP_COUNT, history_label)
+            hist_dates = sorted(results_df["history_trade_date"].dt.date.unique())
+            if len(hist_dates) == 1:
+                st.info(f"历史比较日匹配到 {hist_dates[0]}")
+            else:
+                st.info(
+                    f"请求日期 {history_date} 对应到 {hist_dates[0]}~{hist_dates[-1]} "
+                    "（部分新股会使用首个可用交易日）"
+                )
 
-    if missing_codes:
-        with st.expander(f"缺少历史数据的股票（共 {len(missing_codes)} 只）", expanded=False):
-            st.write(", ".join(sorted(set(missing_codes))[:200]))
+            metric_key = SORT_OPTIONS[metric_label]
+            history_label = history_date.strftime("%Y%m%d")
+            top_df, bottom_df = render_tables(results_df, metric_key, top_count, history_label)
+            if top_df.empty and bottom_df.empty:
+                return
+
+            display_top = build_display_frame(top_df)
+            display_bottom = build_display_frame(bottom_df)
+            history_entry = {
+                "run_ts": datetime.now().isoformat(timespec="seconds"),
+                "history_date": history_date.isoformat(),
+                "metric_label": metric_label,
+                "top_count": top_count,
+                "source": source_name,
+                "top_table": display_top.to_dict(orient="records"),
+                "bottom_table": display_bottom.to_dict(orient="records"),
+            }
+            history_records = record_scan_history(history_entry)
+
+            if missing_codes:
+                with st.expander(f"缺少历史数据的股票（共 {len(missing_codes)} 只）", expanded=False):
+                    st.write(", ".join(sorted(set(missing_codes))[:200]))
+    finally:
+        with history_tab:
+            render_scan_history_tab(history_records)
 
 
 if __name__ == "__main__":
