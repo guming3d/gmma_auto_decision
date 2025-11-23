@@ -42,6 +42,10 @@ SORT_OPTIONS = {
     "总市值变化(绝对值)": "total_mv_change",
     "总市值变化百分比": "total_mv_change_pct",
 }
+SCOPE_OPTIONS = {
+    "按个股": "stock",
+    "按行业": "industry",
+}
 
 AUTH_SESSION_KEY = "gmma_is_authenticated"
 AUTH_USER_KEY = "gmma_authenticated_user"
@@ -301,7 +305,7 @@ def _persist_history_cache(df: pd.DataFrame, source: Path) -> None:
 
 
 def _prepare_history_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
-    keep_cols = ["trade_date", "close", "ts_code", "code_int"]
+    keep_cols = ["trade_date", "close", "ts_code", "code_int", "industry"]
     for col in HISTORY_SHARE_COLUMNS + HISTORY_MV_COLUMNS:
         if col in raw_df.columns:
             keep_cols.append(col)
@@ -320,6 +324,8 @@ def _prepare_history_dataframe(raw_df: pd.DataFrame) -> pd.DataFrame:
     for col in HISTORY_SHARE_COLUMNS + HISTORY_MV_COLUMNS:
         if col in history.columns:
             history[col] = pd.to_numeric(history[col], errors="coerce")
+    if "industry" in history.columns:
+        history["industry"] = history["industry"].fillna("").astype(str)
 
     if "code_int" in history.columns:
         history["code_int"] = pd.to_numeric(history["code_int"], errors="coerce")
@@ -378,6 +384,8 @@ def build_history_snapshot(history_df: pd.DataFrame, codes: list[str], target_da
         return pd.DataFrame()
     subset.sort_values(["code_int", "trade_date"], inplace=True)
     snapshot = subset.groupby("code_int", as_index=False).tail(1)
+    if "industry" in snapshot.columns:
+        snapshot["industry"] = snapshot["industry"].fillna("").astype(str)
     for col in HISTORY_SHARE_COLUMNS:
         if col in snapshot.columns:
             snapshot[col] = convert_share_units(snapshot[col], col)
@@ -455,6 +463,10 @@ def compute_market_value_changes(
     if merged.empty:
         return pd.DataFrame(), missing_codes
 
+    if "industry" not in merged.columns:
+        merged["industry"] = ""
+    merged["industry"] = merged["industry"].fillna("").astype(str)
+
     merged["total_mv_change"] = merged["current_total_mv"] - merged["history_total_mv"]
     merged["total_mv_change_pct"] = merged["total_mv_change"] / merged["history_total_mv"] * 100
 
@@ -464,6 +476,28 @@ def compute_market_value_changes(
 
     merged["history_trade_date_str"] = merged["history_trade_date"].dt.strftime("%Y-%m-%d")
     return merged, missing_codes
+
+
+def aggregate_by_industry(results_df: pd.DataFrame) -> pd.DataFrame:
+    if results_df.empty:
+        return pd.DataFrame()
+    working = results_df.copy()
+    working["industry"] = working["industry"].replace("", "未提供行业").fillna("未提供行业")
+    grouped = (
+        working.groupby("industry", as_index=False)
+        .agg(
+            history_total_mv=("history_total_mv", "sum"),
+            current_total_mv=("current_total_mv", "sum"),
+            total_mv_change=("total_mv_change", "sum"),
+            stock_count=("code_int", "nunique"),
+        )
+    )
+    grouped = grouped[grouped["history_total_mv"] > 0].copy()
+    grouped["total_mv_change_pct"] = grouped["total_mv_change"] / grouped["history_total_mv"] * 100
+    grouped["history_total_mv_亿"] = grouped["history_total_mv"] / 1e8
+    grouped["current_total_mv_亿"] = grouped["current_total_mv"] / 1e8
+    grouped["total_mv_change_亿"] = grouped["total_mv_change"] / 1e8
+    return grouped
 
 
 def load_scan_history() -> list[dict]:
@@ -500,10 +534,14 @@ def render_scan_history_tab(records: list[dict]) -> None:
         st.info("暂无历史扫描记录。")
         return
     for idx, record in enumerate(records):
+        scope_value = record.get("scope") or "stock"
+        scope_label = record.get("scope_label") or ("按行业" if scope_value == "industry" else "按个股")
+        unit_label = "个行业" if scope_value == "industry" else "只股票"
         header = (
             f"{record.get('history_date', '未知日期')} · "
             f"{record.get('metric_label', '未知排序')} · "
-            f"前 {record.get('top_count', '?')} 只"
+            f"{scope_label} · "
+            f"前 {record.get('top_count', '?')} {unit_label}"
         )
         with st.expander(header, expanded=(idx == 0)):
             st.caption(
@@ -555,44 +593,120 @@ def build_display_frame(df: pd.DataFrame) -> pd.DataFrame:
     return display
 
 
-def render_tables(
+def build_industry_display_frame(df: pd.DataFrame) -> pd.DataFrame:
+    display = df[
+        [
+            "industry",
+            "stock_count",
+            "history_total_mv_亿",
+            "current_total_mv_亿",
+            "total_mv_change_亿",
+            "total_mv_change_pct",
+        ]
+    ].copy()
+    display.columns = [
+        "行业",
+        "覆盖股票数",
+        "历史总市值(亿元)",
+        "当前总市值(亿元)",
+        "总市值变化(亿元)",
+        "变化百分比(%)",
+    ]
+    for col in [
+        "历史总市值(亿元)",
+        "当前总市值(亿元)",
+        "总市值变化(亿元)",
+        "变化百分比(%)",
+    ]:
+        display[col] = display[col].astype(float).round(2)
+    display["覆盖股票数"] = display["覆盖股票数"].astype(int)
+    return display
+
+
+def render_stock_tables(
     results_df: pd.DataFrame,
     metric_key: str,
     top_k: int,
     history_label: str,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     available = len(results_df)
     if available == 0:
         st.error("没有足够的数据用于展示，请调整日期或确认行情文件。")
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     top_k = min(top_k, available)
     sorted_df = results_df.sort_values(metric_key, ascending=False)
     top_df = sorted_df.head(top_k)
     bottom_df = sorted_df.tail(top_k).sort_values(metric_key, ascending=True)
 
+    display_top = build_display_frame(top_df)
+    display_bottom = build_display_frame(bottom_df)
+
     st.subheader(f"总市值增加最多的前 {top_k} 只股票")
-    st.dataframe(build_display_frame(top_df), use_container_width=True)
+    st.dataframe(display_top, use_container_width=True)
 
     st.subheader(f"总市值减少最多的前 {top_k} 只股票")
-    st.dataframe(build_display_frame(bottom_df), use_container_width=True)
+    st.dataframe(display_bottom, use_container_width=True)
 
     st.subheader("数据下载")
     col1, col2 = st.columns(2)
     with col1:
         st.download_button(
             label="下载涨幅榜 CSV",
-            data=build_display_frame(top_df).to_csv(index=False),
+            data=display_top.to_csv(index=False),
             file_name=f"top_increase_total_mv_{history_label}.csv",
             mime="text/csv",
         )
     with col2:
         st.download_button(
             label="下载跌幅榜 CSV",
-            data=build_display_frame(bottom_df).to_csv(index=False),
+            data=display_bottom.to_csv(index=False),
             file_name=f"top_decrease_total_mv_{history_label}.csv",
             mime="text/csv",
         )
-    return top_df, bottom_df
+    return top_df, bottom_df, display_top, display_bottom
+
+
+def render_industry_tables(
+    industry_df: pd.DataFrame,
+    metric_key: str,
+    top_k: int,
+    history_label: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    available = len(industry_df)
+    if available == 0:
+        st.error("没有足够的行业数据用于展示。")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    top_k = min(top_k, available)
+    sorted_df = industry_df.sort_values(metric_key, ascending=False)
+    top_df = sorted_df.head(top_k)
+    bottom_df = sorted_df.tail(top_k).sort_values(metric_key, ascending=True)
+
+    display_top = build_industry_display_frame(top_df)
+    display_bottom = build_industry_display_frame(bottom_df)
+
+    st.subheader(f"总市值增加最多的前 {top_k} 个行业")
+    st.dataframe(display_top, use_container_width=True)
+
+    st.subheader(f"总市值减少最多的前 {top_k} 个行业")
+    st.dataframe(display_bottom, use_container_width=True)
+
+    st.subheader("数据下载")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="下载行业涨幅榜 CSV",
+            data=display_top.to_csv(index=False),
+            file_name=f"industry_top_increase_total_mv_{history_label}.csv",
+            mime="text/csv",
+        )
+    with col2:
+        st.download_button(
+            label="下载行业跌幅榜 CSV",
+            data=display_bottom.to_csv(index=False),
+            file_name=f"industry_top_decrease_total_mv_{history_label}.csv",
+            mime="text/csv",
+        )
+    return top_df, bottom_df, display_top, display_bottom
 
 
 def main():
@@ -610,6 +724,12 @@ def main():
         max_value=today,
         key=history_input_key,
     )
+    scope_label = st.sidebar.radio(
+        "排序范围",
+        list(SCOPE_OPTIONS.keys()),
+        index=0,
+    )
+    scope = SCOPE_OPTIONS[scope_label]
     metric_label = st.sidebar.radio(
         "排序依据",
         list(SORT_OPTIONS.keys()),
@@ -686,16 +806,30 @@ def main():
 
             metric_key = SORT_OPTIONS[metric_label]
             history_label = history_date.strftime("%Y%m%d")
-            top_df, bottom_df = render_tables(results_df, metric_key, top_count, history_label)
+            if scope == "industry":
+                industry_df = aggregate_by_industry(results_df)
+                top_df, bottom_df, display_top, display_bottom = render_industry_tables(
+                    industry_df,
+                    metric_key,
+                    top_count,
+                    history_label,
+                )
+            else:
+                top_df, bottom_df, display_top, display_bottom = render_stock_tables(
+                    results_df,
+                    metric_key,
+                    top_count,
+                    history_label,
+                )
             if top_df.empty and bottom_df.empty:
                 return
 
-            display_top = build_display_frame(top_df)
-            display_bottom = build_display_frame(bottom_df)
             history_entry = {
                 "run_ts": datetime.now().isoformat(timespec="seconds"),
                 "history_date": history_date.isoformat(),
                 "metric_label": metric_label,
+                "scope": scope,
+                "scope_label": scope_label,
                 "top_count": top_count,
                 "source": source_name,
                 "top_table": display_top.to_dict(orient="records"),
